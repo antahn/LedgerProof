@@ -147,27 +147,31 @@ def test_invalid_signature_rejected_without_side_effects(client, db_url, enqueue
     assert event_rows(db_url) == []
 
 
-def test_same_event_id_twice_is_duplicate(client, db_url, enqueued) -> None:
+def test_same_event_id_twice_records_one_row(client, db_url, enqueued) -> None:
+    # The dedupe property that matters is ONE event-log row (and, downstream,
+    # one ledger transaction) — not the response body. Both answers are 200 to
+    # Stripe. Since the first delivery is still non-terminal, the redelivery
+    # re-enqueues rather than answering 'duplicate': see H1 in FINDINGS.md,
+    # where treating 'queued' as done lost money after a worker died.
     event = make_event()
     first = deliver(client, event)
     second = deliver(client, event)
     assert first.json() == {"status": "queued"}
     assert second.status_code == 200
-    assert second.json() == {"status": "duplicate"}
-    assert len(enqueued) == 1
     assert row_count(db_url, "stripe_events") == 1
+    assert {e["id"] for e in enqueued} == {"evt_001"}
 
 
-def test_distinct_event_ids_same_object_is_duplicate(client, db_url, enqueued) -> None:
+def test_distinct_event_ids_same_object_records_one_row(client, db_url, enqueued) -> None:
     # Stripe documents that two distinct Event objects can be generated for
-    # the same underlying state change: event.id alone is insufficient.
+    # the same underlying state change: event.id alone is insufficient. The
+    # second key catches it — one row, whatever the response body says.
     first = deliver(client, make_event(event_id="evt_001", object_id="ch_001"))
     second = deliver(client, make_event(event_id="evt_002", object_id="ch_001"))
     assert first.json() == {"status": "queued"}
     assert second.status_code == 200
-    assert second.json() == {"status": "duplicate"}
-    assert len(enqueued) == 1
     assert row_count(db_url, "stripe_events") == 1
+    assert {e["id"] for e in enqueued} == {"evt_001"}
 
 
 def test_reserialized_body_with_original_signature_rejected(client, db_url, enqueued) -> None:
@@ -244,16 +248,39 @@ def test_received_row_recovered_via_object_key_match(db_url) -> None:
     assert event_rows(db_url) == [("evt_001", "charge.succeeded", "ch_001", "queued")]
 
 
-def test_duplicate_of_queued_row_not_reenqueued(client, db_url, enqueued) -> None:
+def test_redelivery_recovers_a_queued_row_whose_worker_died(client, db_url, enqueued) -> None:
+    # Minimal repro of harness finding H1. 'queued' means "we handed it to the
+    # queue", never "it completed" — an unclean worker death leaves the row
+    # exactly here. Answering 'duplicate' would tell Stripe to stop retrying
+    # the one delivery that could still save the event, so a redelivery must
+    # re-enqueue any NON-TERMINAL row. Safe: the worker is idempotent
+    # end-to-end, so a redundant re-enqueue costs one no-op.
     event = make_event()
     assert deliver(client, event).json() == {"status": "queued"}
     assert event_rows(db_url) == [("evt_001", "charge.succeeded", "ch_001", "queued")]
 
-    dup = deliver(client, event)
-    assert dup.status_code == 200
-    assert dup.json() == {"status": "duplicate"}
-    assert len(enqueued) == 1  # NOT re-enqueued: the row already reached the queue
+    redelivery = deliver(client, event)
+    assert redelivery.status_code == 200
+    assert redelivery.json() == {"status": "queued"}
+    assert len(enqueued) == 2
     assert event_rows(db_url) == [("evt_001", "charge.succeeded", "ch_001", "queued")]
+
+
+@pytest.mark.parametrize("terminal", ["processed", "no_money_moved", "failed"])
+def test_duplicate_of_terminal_row_not_reenqueued(client, db_url, enqueued, terminal) -> None:
+    # The other half of H1: a row the worker finished with is genuinely a
+    # duplicate. 'failed' counts as terminal — retries are exhausted and the
+    # row is the reconciler's dead-letter signal; auto-redriving it would erase
+    # the evidence rather than fix anything.
+    event = make_event()
+    deliver(client, event)
+    with psycopg.connect(db_url) as conn:
+        conn.execute("UPDATE stripe_events SET status = %s WHERE id = 'evt_001'", (terminal,))
+
+    dup = deliver(client, event)
+    assert dup.json() == {"status": "duplicate"}
+    assert len(enqueued) == 1
+    assert event_rows(db_url) == [("evt_001", "charge.succeeded", "ch_001", terminal)]
 
 
 def test_worker_written_status_never_clobbered(client, db_url, enqueued) -> None:
@@ -321,12 +348,13 @@ def test_two_partial_refunds_of_one_charge_both_accepted(client, db_url, enqueue
     ]
 
 
-def test_same_refund_id_twice_is_duplicate(client, db_url, enqueued) -> None:
+def test_same_refund_id_twice_records_one_row(client, db_url, enqueued) -> None:
     first = deliver(client, make_refund_event("evt_r1", refund_id="re_001"))
-    # Distinct event id, same refund: same money movement, must dedupe.
+    # Distinct event id, same refund: same money movement, must dedupe to one
+    # row (the re-enqueue of a still-non-terminal row is H1's fix; the ledger
+    # constraints make it a no-op).
     second = deliver(client, make_refund_event("evt_r2", refund_id="re_001"))
     assert first.json() == {"status": "queued"}
     assert second.status_code == 200
-    assert second.json() == {"status": "duplicate"}
-    assert len(enqueued) == 1
     assert row_count(db_url, "stripe_events") == 1
+    assert {e["id"] for e in enqueued} == {"evt_r1"}

@@ -1,0 +1,31 @@
+ 
+ -------------- chaos8103@Anthony_Ahn v5.6.3 (recovery)
+--- ***** ----- 
+-- ******* ---- Windows-11-10.0.26200-SP0 2026-08-05 01:04:17
+- *** --- * --- 
+- ** ---------- [config]
+- ** ---------- .> app:         ledgerproof:0x1d6f812b3e0
+- ** ---------- .> transport:   redis://localhost:6379/1
+- ** ---------- .> results:     disabled://
+- *** --- * --- .> concurrency: 20 (solo)
+-- ******* ---- .> task events: OFF (enable -E to monitor tasks in this worker)
+--- ***** ----- 
+ -------------- [queues]
+                .> celery           exchange=celery(direct) key=celery
+                
+
+[tasks]
+  . ledgerproof.process_event
+
+[2026-08-05 01:04:17,954: INFO/MainProcess] Connected to redis://localhost:6379/1
+[2026-08-05 01:04:17,975: INFO/MainProcess] mingle: searching for neighbors
+[2026-08-05 01:04:19,006: INFO/MainProcess] mingle: all alone
+[2026-08-05 01:04:19,043: INFO/MainProcess] chaos8103@Anthony_Ahn ready.
+[2026-08-05 01:04:19,448: INFO/MainProcess] Task ledgerproof.process_event[09511b63-cb1d-4a26-9c2e-53ea0a2b3bbe] received
+[2026-08-05 01:04:19,508: INFO/MainProcess] Task ledgerproof.process_event[09511b63-cb1d-4a26-9c2e-53ea0a2b3bbe] succeeded in 0.0470000000204891s: 'posted'
+[2026-08-05 01:04:19,892: INFO/MainProcess] Task ledgerproof.process_event[2e428b02-5dce-4776-9626-9294f0007c15] received
+[2026-08-05 01:04:19,948: INFO/MainProcess] Task ledgerproof.process_event[2e428b02-5dce-4776-9626-9294f0007c15] succeeded in 0.06299999996554106s: 'posted'
+[2026-08-05 01:04:20,829: INFO/MainProcess] Task ledgerproof.process_event[66ec1886-743f-4a2e-8a3a-8dc45fdf5f68] received
+[2026-08-05 01:04:20,871: INFO/MainProcess] Task ledgerproof.process_event[66ec1886-743f-4a2e-8a3a-8dc45fdf5f68] succeeded in 0.0470000000204891s: 'posted'
+[2026-08-05 01:04:21,901: INFO/MainProcess] Task ledgerproof.process_event[694bea56-432e-4868-8025-ddceab8428fd] received
+[2026-08-05 01:04:21,954: INFO/MainProcess] Task ledgerproof.process_event[694bea56-432e-4868-8025-ddceab8428fd] succeeded in 0.0470000000204891s: 'posted'

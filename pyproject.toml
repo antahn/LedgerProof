@@ -34,6 +34,10 @@ packages = ["src/ledgerproof"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
+# harness/ is a top-level package outside the src layout: the adversary is not
+# shipped with the product it attacks.
+pythonpath = ["."]
+markers = ["chaos: starts real processes (ingest, worker) and a real database"]
 
 [tool.ruff]
 line-length = 100

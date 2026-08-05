@@ -37,6 +37,13 @@ celery_app = Celery("ledgerproof", broker=get_settings().redis_url, backend=None
 celery_app.conf.update(
     task_ignore_result=True,  # no result backend by design
     task_acks_late=True,  # ack after the idempotent unit completes -> crash = redeliver
+    # acks_late only promises redelivery *eventually*: with the Redis broker an
+    # unacked message stays invisible for visibility_timeout, which defaults to
+    # ONE HOUR. An unclean worker death would strand a money-moving event for
+    # that long (harness finding H1), so shorten it to a minute. Must exceed the
+    # longest plausible task duration, or a slow task gets redelivered while it
+    # is still running; the unit is idempotent, so that costs a no-op, not money.
+    broker_transport_options={"visibility_timeout": 60},
 )
 
 

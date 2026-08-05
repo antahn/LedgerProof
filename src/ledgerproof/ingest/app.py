@@ -33,6 +33,14 @@ from ledgerproof.stripe_io.signature import SignatureVerificationError, verify
 # get no free HMAC work.
 MAX_BODY_BYTES = 512 * 1024
 
+# Statuses that do NOT prove the event was processed. A redelivery of a row in
+# one of these must re-enqueue rather than answer 'duplicate': 'received' means
+# the enqueue never happened, and 'queued' only means the queue was told —
+# an unclean worker death leaves the row right there (harness finding H1).
+# 'processed' / 'no_money_moved' are done; 'failed' is the exhausted-retries
+# dead-letter the reconciler acts on, and auto-redriving it would erase that.
+NON_TERMINAL_STATUSES = frozenset({"received", "queued"})
+
 
 def create_app(*, webhook_secret: str, deduper: Deduper, enqueue: EnqueueFn) -> FastAPI:
     app = FastAPI()
@@ -69,15 +77,14 @@ def create_app(*, webhook_secret: str, deduper: Deduper, enqueue: EnqueueFn) -> 
         result = deduper.check_and_record(event)
         if not result.new:
             if (
-                result.existing_status == "received"
+                result.existing_status in NON_TERMINAL_STATUSES
                 and result.existing_id is not None
                 and result.existing_payload is not None
             ):
-                # Outbox recovery: the row was recorded but a prior request
-                # died between insert and enqueue. Re-enqueue the STORED
-                # payload — that is the row the worker will advance — then
-                # flip it to 'queued'. Safe: the worker is idempotent
-                # end-to-end.
+                # Outbox recovery: the row exists but nothing proves the event
+                # was ever processed. Re-enqueue the STORED payload — that is
+                # the row the worker will advance — then flip it to 'queued'.
+                # Safe: the worker is idempotent end-to-end.
                 try:
                     enqueue(result.existing_payload)
                 except Exception:  # noqa: BLE001 — any backend failure must become a 500
