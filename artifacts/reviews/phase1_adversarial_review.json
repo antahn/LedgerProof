@@ -1,0 +1,183 @@
+﻿{
+    "confirmed":  [
+                      {
+                          "file":  "src/ledgerproof/worker/handlers.py",
+                          "line":  28,
+                          "title":  "Same real payment posts twice: charge.succeeded + payment_intent.succeeded both handled",
+                          "severity":  "critical",
+                          "claim":  "A single PaymentIntent-based card payment emits BOTH charge.succeeded (object ch_...) and payment_intent.succeeded (object pi_...). Both types are in HANDLED_EVENT_TYPES and both map to the identical posting (DR stripe_balance net, DR processing_fees, CR revenue gross). Neither dedupe key catches the pair: event.ids differ, and (event_type, object_id) differs on BOTH components â€” (\u0027charge.succeeded\u0027,\u0027ch_1\u0027) vs (\u0027payment_intent.succeeded\u0027,\u0027pi_1\u0027). The transactions-table constraints (dedupe_event, dedupe_object, uuid5-of-event.id pkey) all key on the event, not the underlying money movement, so both post. This is exactly the double-count the brief\u0027s Â§4.3 single mapping row (charge.succeeded / payment_intent.succeeded share one row) and Â§5.3 \u0027subscribe to only the event types you handle\u0027 exist to prevent. The books still balance (conservation invariant holds), so no test or trigger fires â€” but the ledger records twice the money that moved, which the reconciler will report as drift on every PI payment. Empirically confirmed: delivering both events for one $10.00/59c-fee payment yields revenue=2000, processing_fees=118, stripe_balance=1882; ingest answered \u0027queued\u0027 to both and the worker returned \u0027posted\u0027 twice. No test delivers both event types for the same payment, which is why 104 green tests miss it.",
+                          "failure_scenario":  "Customer pays $10.00 via PaymentIntents (the normal Stripe flow). Stripe delivers evt_A charge.succeeded(ch_1) and evt_B payment_intent.succeeded(pi_1, latest_charge=ch_1). Both pass ingest dedupe, both enqueue, both post. Ledger: revenue 2000, stripe_balance 1882, fees 118 for a single 1000-minor-unit payment â€” every real PI payment is double-counted, with no fault injection required.",
+                          "suggested_fix":  "Handle exactly one of the two payment events (drop payment_intent.succeeded from HANDLED_EVENT_TYPES and from the webhook endpoint\u0027s enabled_events, per Â§5.3 subscribe-only), or normalize the money-movement identity before posting: for payment_intent.succeeded resolve latest_charge and use the charge id as stripe_object_id under a normalized event_type (e.g. \u0027payment\u0027) so the dedupe_object constraint collides with the charge.succeeded posting. Add an integration test that delivers both events for one payment and asserts exactly one transaction.",
+                          "dim":  "ingest-worker",
+                          "verified_severity":  "critical",
+                          "demonstrated":  true,
+                          "verifier_reasoning":  "The finding is real, reachable, and empirically confirmed end-to-end. Code reading: HANDLED_EVENT_TYPES (src/ledgerproof/worker/handlers.py:25-34) includes both charge.succeeded and payment_intent.succeeded; build_transaction (src/ledgerproof/stripe_io/mapping.py:117-122) maps both to the identical DR stripe_balance(net)/DR processing_fees(fee)/CR revenue(gross) posting; the three DB defenses (transactions_pkey = uuid5 of event.id, dedupe_event = UNIQUE(stripe_event_id), dedupe_object = UNIQUE(event_type, stripe_object_id)) all key on event identity, and the cross-type pair differs on every component (evt_A vs evt_B, charge.succeeded/ch_1 vs payment_intent.succeeded/pi_1). No filter anywhere suppresses one of the pair; the ingest app enqueues any signature-valid event and its docstring states the endpoint subscribes to exactly the worker\u0027s handled types, so a real deployment receives both events for every normal PaymentIntents card payment â€” no fault injection required. Empirical run against a fresh migrated Postgres scratch DB using the real Deduper and handle_event: both events returned new=True at ingest, both returned \u0027posted\u0027 at the worker, two transactions rows landed, and balances read revenue=2000, processing_fees=118, stripe_balance=1882 for a single 1000-minor-unit payment â€” exactly double, matching the reviewer\u0027s numbers. The per-transaction and global conservation invariants hold (both sides doubled), so no trigger or test fires; FINDINGS.md is empty and no test delivers both event types for one payment, confirming the gap is unrecorded and untested. This contradicts the brief\u0027s correctness thesis (Â§0: never create money; Â§4.3: one mapping row for the pair because they are one money movement) even though the internal invariant is silent â€” the ledger records twice the money that actually moved, which the reconciler would report as drift on every PI payment."
+                      },
+                      {
+                          "file":  "src/ledgerproof/ingest/app.py",
+                          "line":  48,
+                          "title":  "Recorded-but-never-enqueued event is lost forever; retry gets a false \u0027duplicate\u0027 200",
+                          "severity":  "critical",
+                          "claim":  "Deduper.check_and_record commits the stripe_events row (status \u0027queued\u0027) on its own connection BEFORE enqueue(event) runs. If enqueue raises (Redis blip, broker down) or the process dies between the two calls, the route returns 500/nothing, but the dedupe row is already durable. When Stripe retries the delivery, check_and_record hits UniqueViolation and ingest answers 200 {\"status\":\"duplicate\"} â€” telling Stripe to stop retrying an event that was never enqueued and never will be. Nothing in the repo ever re-enqueues or even reads stale \u0027queued\u0027 rows (grep: no sweeper, no consumer of status=\u0027queued\u0027), so the event is silently and permanently dropped while every layer reported success. This breaks the at-least-once half of exactly-once: the RESPOND_500 fault plus one broker error converts a delivered, signed, acknowledged-as-duplicate event into a DROP that ingest itself caused. Empirically confirmed: first delivery with a raising enqueue â†’ 500 with the row committed as \u0027queued\u0027; retry with a healthy queue â†’ 200 \u0027duplicate\u0027, enqueued list empty.",
+                          "failure_scenario":  "Redis restarts for 5 seconds during a webhook burst. Delivery 1 of evt_X: dedupe INSERT commits, .delay() raises ConnectionError, ingest returns 500. Stripe retries evt_X a minute later: UniqueViolation â†’ 200 \u0027duplicate\u0027 â†’ Stripe marks the event delivered and never sends it again. The charge never reaches the worker; stripe_events shows \u0027queued\u0027 forever; the ledger is short the money until (Phase-2+) reconciliation happens to notice.",
+                          "suggested_fix":  "Treat stripe_events as a transactional outbox: insert with status \u0027received\u0027, attempt enqueue, then flip to \u0027queued\u0027 only after .delay() succeeds; on the duplicate path, if the existing row is still \u0027received\u0027 (or \u0027queued\u0027 but stale), re-enqueue before answering 200 (process_event is idempotent, so a double enqueue is safe). Add a periodic sweeper that re-enqueues rows stuck in pre-processed states older than N minutes.",
+                          "dim":  "ingest-worker",
+                          "verified_severity":  "critical",
+                          "demonstrated":  true,
+                          "verifier_reasoning":  "Attempted refutation failed on every angle; the defect is real, reachable, and demonstrated end-to-end.\n\nCode path (C:\\Users\\Anthony\\LedgerProof\\src\\ledgerproof\\ingest\\app.py lines 45-48): `deduper.check_and_record(event)` runs before `enqueue(event)`. check_and_record (src\\ledgerproof\\ingest\\dedupe.py lines 44-53) opens its own psycopg connection in a `with` block; the block exits â€” committing the INSERT of the stripe_events row with status \u0027queued\u0027 â€” and the connection closes before enqueue is ever called. There is no shared transaction, no compensating DELETE on enqueue failure (the append-only rules cover only entries/transactions, not stripe_events, and ingest has UPDATE grant on it per migrations\\003_stripe_events.sql line 17 â€” a fix was possible), and no outbox pattern.\n\nEmpirical demonstration (scratch script against a throwaway migrated database, repo untouched): delivery 1 with a raising enqueue returned HTTP 500 while stripe_events showed [(\u0027evt_X\u0027,\u0027queued\u0027)] â€” the row survived the 500. Delivery 2 of the identical signed payload with a healthy enqueue returned 200 {\"status\":\"duplicate\"}, the enqueue recorder stayed empty, and the row remained \u0027queued\u0027. \"EVENT PERMANENTLY LOST: True\".\n\nRefutation angles checked and closed: (1) No recovery path â€” grep across src/, harness/, tests/, migrations/ finds no sweeper, no reader of status=\u0027queued\u0027, nothing that re-enqueues; the only other writer is worker/_mark_status, which only runs if the event WAS enqueued. (2) The reconciler that the brief designates as the DROP safety net (src\\ledgerproof\\recon\\reconciler.py) is a docstring-only stub, and even per its contract it \"never repairs, only reports\" â€” and here ingest actively told Stripe \"duplicate\", disabling Stripe\u0027s own retry safety net, which is strictly worse than a plain DROP. (3) The trigger is realistic in production wiring: queue.py\u0027s enqueue is celery `.delay()`, which raises (kombu OperationalError after ~3 quick publish retries, well under a 5s Redis outage) when the broker is down; process death between the two calls produces the same state. (4) Spec contradiction is direct: brief Â§2 claims \"exactly-once semantics under partial failure\", and the Â§6 RESPOND_500 fault row\u0027s stated purpose is proving \"Stripe\u0027s retry path, and that a retry is safe\" â€” here the retry is answered \u0027duplicate\u0027 for an event that was never processed and never will be.\n\nSeverity: critical â€” a single broker blip converts a delivered, correctly signed charge event into a silent permanent ledger shortfall while every layer (dedupe row committed, 200 on retry, Stripe marks delivered) reports success, and no code in the repo can ever notice or repair it."
+                      },
+                      {
+                          "file":  "src/ledgerproof/stripe_io/mapping.py",
+                          "line":  124,
+                          "title":  "Second partial refund on a charge is silently dropped by the (type, object_id) dedupe",
+                          "severity":  "major",
+                          "claim":  "charge.refunded fires once per refund with data.object = the charge, so two partial refunds produce two events with different event.ids but the same (charge.refunded, ch_x) pair. The dedupe_object constraint â€” designed for Stripe\u0027s \u0027two Event objects for the same state change\u0027 case â€” also fires for this genuinely new state change, and post_transaction classifies it as an idempotent DUPLICATE. Because mapping posts the cumulative obj[\u0027amount_refunded\u0027] and the second event is discarded, the delta is never recorded. Verified empirically through handle_event: refund #1 (amount_refunded=3000) posted, refund #2 (amount_refunded=8000) returned \u0027duplicate\u0027; refunds_contra ended at 3000 against a true refunded total of 8000, invariant green.",
+                          "failure_scenario":  "Merchant refunds $30 of a $100 charge, then later refunds another $50. Ledger records only the first $30; the second $50 movement vanishes with no error, no invariant break, and status \u0027processed\u0027 in the event log. Books overstate stripe_balance by 5000 minor units until the Phase-2 reconciler (not yet built) might notice.",
+                          "suggested_fix":  "Key refund transactions by the specific refund, not the charge: set stripe_object_id to the refund id (data.object.refunds.data[-1].id or the balance-transaction-linked refund object) and post the per-refund amount (delta of amount_refunded, or the individual refund\u0027s amount), so each refund is one dedupe-able transaction. Add a two-partial-refund test asserting refunds_contra equals the true cumulative refund.",
+                          "dim":  "ledger-correctness",
+                          "verified_severity":  "major",
+                          "demonstrated":  true,
+                          "verifier_reasoning":  "Confirmed, not refuted. Stripe docs verify the premise: charge.refunded fires per refund including partials, data.object is the charge, amount_refunded is cumulative â€” so a second partial refund arrives with a new event.id but the same (charge.refunded, ch_x) pair. Code reading confirms the mechanism: mapping.py:124 posts cumulative amount_refunded; the dedupe_object UNIQUE (event_type, stripe_object_id) constraint (and the ingest Deduper fast path on the same key) treats the second event as a replay; post.py maps that violation to PostOutcome.DUPLICATE; handlers.py marks the event \u0027processed\u0027 and returns \u0027duplicate\u0027 with no error. No compensating logic exists: the reconciler is a docstring stub and no test covers two refunds on one charge. Empirical reproduction against real migrations in a scratch Postgres DB: refund #1 (3000) posted; refund #2 (8000) dropped at both ingest and worker paths; final refunds_contra=3000 vs true 8000, stripe_balance overstated by exactly 5000 minor units, invariant green, statuses \u0027processed\u0027. The failure is real, reachable via ordinary Stripe delivery (no chaos needed), and silently loses a genuine money movement â€” the dedupe constraint over-fires beyond its documented \u0027same state change\u0027 justification. Major (not critical) because the internal conservation invariant holds and the planned Phase-2 reconciler could later detect (not prevent) the divergence."
+                      },
+                      {
+                          "file":  "migrations/001_ledger.sql",
+                          "line":  47,
+                          "title":  "No enforcement that entry currency matches account currency; invariant is blind to it",
+                          "severity":  "major",
+                          "claim":  "entries.currency is free-form and nothing â€” schema, trigger, or post.py â€” ties it to the account\u0027s currency. The per-transaction trigger groups by entries.currency while account_balances/invariant.py group by accounts.currency, and nothing reconciles the two groupings. mapping.py:108,114 passes the Stripe event\u0027s currency into every entry while the account names are the hard-coded USD chart, so any non-USD event reaches this hole through the real write path. Verified empirically: post_transaction accepted DR stripe_balance / CR revenue for 100000 minor units with currency=\u0027EUR\u0027; the USD-labeled stripe_balance moved by 100000 and invariant.check stayed ok=True â€” EUR cents silently counted as USD cents.",
+                          "failure_scenario":  "A legitimate EUR test charge (evt for a currency=\u0027eur\u0027 charge) flows through ingest -\u003e worker -\u003e post_transaction. The trigger passes (balanced within EUR), the view adds the EUR amount into USD balances at face value, and the money-conservation invariant â€” the project\u0027s thesis â€” reports ok. Balances are materially wrong (currencies conflated) with zero alarms; conversely, once a non-USD account exists, a txn like {DR usd_acct 1000 EUR / CR eur_acct 1000 EUR} passes the trigger yet breaks the measured invariant, producing phantom \u0027drift\u0027.",
+                          "suggested_fix":  "Enforce the match in the database: add UNIQUE (id, currency) on accounts and a composite FK on entries (account_id, currency) REFERENCES accounts (id, currency) (a follow-up migration; the brief\u0027s verbatim schema is a floor, not a ceiling â€” the repo already added TRUNCATE triggers beyond it). Also assert entry.currency == account.currency in post.py during the account lookup so the error is legible. Add a test posting a mismatched-currency entry and asserting rejection.",
+                          "dim":  "ledger-correctness",
+                          "verified_severity":  "major",
+                          "demonstrated":  true,
+                          "verifier_reasoning":  "Confirmed, not refuted. Reproduced both halves empirically in a scratch DB (migrations 001-003 applied via scripts/migrate.py, DB dropped afterward). (1) A EUR charge.succeeded event run through the REAL worker path â€” handle_event in src/ledgerproof/worker/handlers.py, one level above the reviewer\u0027s post_transaction demo â€” returned \u0027posted\u0027; stored entries carried currency=\u0027EUR\u0027 against USD-labeled accounts; USD balances absorbed the EUR minor units at face value (stripe_balance 0â†’96780, revenue 0â†’100000, processing_fees 0â†’3220); invariant.check returned ok=True with everything grouped under \u0027USD\u0027. (2) After adding one EUR account, post_transaction accepted {DR stripe_balance(USD) 5000 EUR / CR eur_revenue(EUR) 5000 EUR} â€” balanced per entries.currency so the deferred trigger passed â€” and invariant.check then reported ok=False with +5000 drift in USD and -5000 in EUR: phantom drift from money that was perfectly conserved per currency. Root cause is exactly as claimed: the trigger (migrations/001_ledger.sql:98-106) groups by entries.currency while account_balances (001_ledger.sql:54-59) and invariant.py:63-68 group by accounts.currency, and no schema constraint, trigger, or code in post.py/handlers.py ties an entry\u0027s currency to its account\u0027s currency. Reachability is real: mapping.py:108 passes the event\u0027s currency into every entry while targeting the hard-coded USD chart, no layer filters non-USD events, and tests/unit/test_mapping.py:358-363 even asserts EUR entries are produced against the USD account names â€” the pass-through is codified. Refutation angles fail: the schema being spec-verbatim does not excuse the system-level hole, because the brief\u0027s own invariant statement (Â§4.2: \u0027For each currency... A mismatch means the system created or destroyed money out of nothing\u0027) is falsified in both directions â€” materially wrong balances report ok (false negative) and a money-conserving transaction reports drift (false positive) â€” directly contradicting the project\u0027s stated thesis. Severity major (not critical): USD-only operation with the seeded chart is unaffected and the harness\u0027s own traffic is USD, but any legitimate non-USD sandbox event silently corrupts balances with zero alarms."
+                      },
+                      {
+                          "file":  "src/ledgerproof/worker/tasks.py",
+                          "line":  28,
+                          "title":  "Task exceptions are acked with no retry or failed-marking; transient faults drop events",
+                          "severity":  "major",
+                          "claim":  "process_event has no retry policy (no autoretry_for, no self.retry, no dead-letter), and task_acks_late acks the message even when the task raises (Celery\u0027s task_acks_on_failure_or_timeout defaults to True). So any transient failure â€” DB connection refused, post_transaction exhausting its 5 attempts on 40001 under CONCURRENT_DUPLICATE load, StripeError from the balance-transaction fetch, MissingFeeData with client=None â€” raises out of the task, the message is acked, and the event is never reprocessed. The stripe_events row stays \u0027queued\u0027 forever; the \u0027failed\u0027 status value in migrations/003\u0027s CHECK constraint is written by no code path anywhere, which is fossil evidence that the failure branch was never built. The docstring\u0027s safety claim (\u0027redelivery after a crash is always safe â€” acks_late relies on exactly that\u0027) covers only SIGKILL-style worker loss (PARTIAL_WRITE); an ordinary raised exception â€” far more common under DELAY/RESPOND_500-style chaos â€” is a silent permanent drop with no marker for the reconciler to find.",
+                          "failure_scenario":  "Postgres restarts while the worker drains a backlog of 50 events. Each process_event call raises OperationalError on connect; Celery logs the failure, acks each message, and moves on. Fifty money-moving events are gone: not in the queue, not posted, rows stuck at \u0027queued\u0027, nothing marked \u0027failed\u0027, no alert. The ledger silently diverges from Stripe until manual reconciliation.",
+                          "suggested_fix":  "Add bounded Celery retries with backoff for transient exceptions (autoretry_for covering psycopg.OperationalError, StripeError, serialization-exhaustion; retry_backoff=True, retry_jitter=True, max_retries~8), and a final failure handler (on_failure or a terminal except) that sets stripe_events.status=\u0027failed\u0027 so the reconciler/sweeper has a durable dead-letter signal to act on.",
+                          "dim":  "ingest-worker",
+                          "verified_severity":  "major",
+                          "demonstrated":  true,
+                          "verifier_reasoning":  "Confirmed, not refuted. Static verification: process_event (src/ledgerproof/worker/tasks.py) has no autoretry_for/self.retry/dead-letter; live-inspected Celery 5.6.3 config shows task_acks_late=True with task_acks_on_failure_or_timeout=True (default), so raised exceptions are acked; grep proves no code writes stripe_events status \u0027failed\u0027 (only migrations/003\u0027s CHECK lists it); recon/reconciler.py is an unimplemented docstring stub. Empirical end-to-end repro: recorded a charge.succeeded event as \u0027queued\u0027 via the real Deduper (ingest 200s, so Stripe never retries), ran the real worker against a failing DB â€” psycopg.OperationalError raised out of post_transaction, worker log shows \u0027raised unexpected: OperationalError\u0027, and Redis then showed LLEN celery=0 with the message absent from unacked (acked despite failure). After restarting the worker against the healthy DB, the task was never redelivered; the stripe_events row remained \u0027queued\u0027 and zero transactions were posted â€” the money-moving event permanently lost with no failure marker. Contrast demonstrated: a SIGKILL\u0027d worker\u0027s message stayed in Redis unacked for redelivery, confirming the docstring\u0027s crash-safety claim covers only worker loss, not ordinary exceptions. This contradicts the brief\u0027s exactly-once-under-partial-failure thesis (Â§2, Â§5.3) and the module\u0027s own contract; the only overstatement in the claim is \u0027no marker for the reconciler to find\u0027 â€” the stuck \u0027queued\u0027 row is a findable marker, though nothing scans for it. Severity major (not critical): the DB-enforced money-conservation invariant is never violated and divergence is detectable in principle by the (future) reconciler, but accepted money-moving events are silently and permanently dropped on any transient fault."
+                      }
+                  ],
+    "refuted":  [
+                    {
+                        "title":  "One payment double-posts: charge.succeeded AND payment_intent.succeeded both map to money",
+                        "file":  "src/ledgerproof/stripe_io/mapping.py",
+                        "why_refuted":  "The structural premises are accurate (both event types handled, both mapped to full money transactions, no dedupe key collapses the ch_/pi_ pair), but the claimed failure â€” $200 posted for a $100 payment in the normal flow â€” is unreachable with payloads Stripe actually sends. Stripe\u0027s docs (verified via `stripe docs /expand`): \"You can\u0027t receive webhook events with properties auto-expanded. Object"
+                    },
+                    {
+                        "title":  "verify() accepts an empty endpoint secret â€” fail-open on missing STRIPE_WEBHOOK_SECRET",
+                        "file":  "src/ledgerproof/stripe_io/signature.py",
+                        "why_refuted":  "The mechanical premise is true but the finding fails all three survival criteria. (1) Not a spec contradiction: brief Â§5.1 enumerates the signature requirements (v1-only, constant-time, raw body, 300s tolerance/\u0027never 0\u0027, rotation, header shape) and says nothing about rejecting empty secrets; the tolerance\u003c=0 guard exists because the brief explicitly demands that one. The docstring\u0027s \u0027Fails CLOSED"
+                    },
+                    {
+                        "title":  "Â§5.2 metadata local-identifier requirement silently dropped, but docstring claims it",
+                        "file":  "src/ledgerproof/stripe_io/client.py",
+                        "why_refuted":  "Refuted on reachability and on the claim\u0027s factual premises. (1) No failure path exists: grep confirms zero client.post() call sites in src/ â€” the application\u0027s only egress call is the GET in worker/handlers.py:60. The codebase (Phase 1/G1: tests/chaos and tests/clocks empty, recon/* docstring-only stubs) never creates Stripe resources, so no creation POST can omit a local identifier, and the reco"
+                    },
+                    {
+                        "title":  "Indeterminate failures discard the idempotency key, forcing outer retries to mint new keys",
+                        "file":  "src/ledgerproof/stripe_io/client.py",
+                        "why_refuted":  "The finding fails on all three survival criteria: the central premise is factually wrong, the failure is unreachable in this repo, and the behavior contradicts nothing in the brief.\n\n1. \"Structurally forced into new-key-after-indeterminate\" is false. post() is `def post(self, path, params, *, idempotency_key: str | None = None)` (C:\\Users\\Anthony\\LedgerProof\\src\\ledgerproof\\stripe_io\\client.py:110"
+                    },
+                    {
+                        "title":  "Committed transactions are amendable: later INSERTs can rewrite a transaction\u0027s contents",
+                        "file":  "migrations/001_ledger.sql",
+                        "why_refuted":  "The MECHANICS are confirmed, but the finding\u0027s conclusions fail against the spec, the threat model, and two factual claims.\n\nEmpirical reproduction (scratch DB ledgerproof_verify_amend, migrations from C:\\Users\\Anthony\\LedgerProof\\scripts applied, both sessions as ledger_app): committed a txn with 2 entries (gross 1000); a separate session inserted a balanced DR refunds_contra / CR stripe_balance "
+                    }
+                ],
+    "deferred_unverified":  [
+                                {
+                                    "title":  "Fetch-missing-fee path can never work for real payment_intent.succeeded payloads",
+                                    "file":  "src/ledgerproof/stripe_io/mapping.py",
+                                    "severity":  "major"
+                                },
+                                {
+                                    "title":  "(event_type, object_id) dedupe silently drops the second partial refund on a charge",
+                                    "file":  "src/ledgerproof/ingest/dedupe.py",
+                                    "severity":  "major"
+                                },
+                                {
+                                    "title":  "Real-shape payment_intent.succeeded webhook is unprocessable; tests use unreal shapes",
+                                    "file":  "src/ledgerproof/worker/handlers.py",
+                                    "severity":  "major"
+                                },
+                                {
+                                    "title":  "charge.succeeded + payment_intent.succeeded double-count revenue; pair never tested",
+                                    "file":  "src/ledgerproof/worker/handlers.py",
+                                    "severity":  "major"
+                                },
+                                {
+                                    "title":  "Enqueue failure after dedupe insert loses the event forever; retry answered \u0027duplicate\u0027",
+                                    "file":  "src/ledgerproof/ingest/app.py",
+                                    "severity":  "major"
+                                },
+                                {
+                                    "title":  "Correctly signed JSON that is not an event-shaped dict crashes the endpoint with 500",
+                                    "file":  "src/ledgerproof/ingest/app.py",
+                                    "severity":  "minor"
+                                },
+                                {
+                                    "title":  "No request body size cap: unauthenticated huge POSTs fully buffered before verification",
+                                    "file":  "src/ledgerproof/ingest/app.py",
+                                    "severity":  "minor"
+                                },
+                                {
+                                    "title":  "Idempotent-Replayed counted only on 2xx; replayed cached errors invisible to the metric",
+                                    "file":  "src/ledgerproof/stripe_io/client.py",
+                                    "severity":  "minor"
+                                },
+                                {
+                                    "title":  "Non-JSON or empty 2xx body escapes as raw JSONDecodeError, not StripeError",
+                                    "file":  "src/ledgerproof/stripe_io/client.py",
+                                    "severity":  "minor"
+                                },
+                                {
+                                    "title":  "Client never closes its httpx pool and offers no close(); worker builds one per event",
+                                    "file":  "src/ledgerproof/stripe_io/client.py",
+                                    "severity":  "minor"
+                                },
+                                {
+                                    "title":  "Jitter assertion cannot detect jitter removal â€” deterministic backoff passes it",
+                                    "file":  "tests/unit/test_ledger_post.py",
+                                    "severity":  "minor"
+                                },
+                                {
+                                    "title":  "ledger_app can rewrite stripe_events payloads, not just status",
+                                    "file":  "migrations/003_stripe_events.sql",
+                                    "severity":  "minor"
+                                },
+                                {
+                                    "title":  "Producer-side celery_app.tasks[...] lookup breaks unless the worker module is imported",
+                                    "file":  "src/ledgerproof/ingest/queue.py",
+                                    "severity":  "minor"
+                                },
+                                {
+                                    "title":  "\u0027Subscribe only to handled event types\u0027 exists nowhere; docstring claims it anyway",
+                                    "file":  "src/ledgerproof/ingest/app.py",
+                                    "severity":  "minor"
+                                },
+                                {
+                                    "title":  "SERIALIZABLE isolation asserted by no test; deleting the line survives the suite",
+                                    "file":  "src/ledgerproof/ledger/post.py",
+                                    "severity":  "minor"
+                                },
+                                {
+                                    "title":  "Non-USD events never posted end-to-end: EUR entries silently pollute USD balances",
+                                    "file":  "tests/unit/test_mapping.py",
+                                    "severity":  "minor"
+                                },
+                                {
+                                    "title":  "Least-privilege ledger_app role never exercised: grant mutations survive both ways",
+                                    "file":  "tests/conftest.py",
+                                    "severity":  "minor"
+                                }
+                            ]
+}

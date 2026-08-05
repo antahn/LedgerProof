@@ -12,7 +12,11 @@ from datetime import UTC, datetime
 import pytest
 
 from ledgerproof.ledger.post import Entry, LedgerTransaction
-from ledgerproof.stripe_io.mapping import MissingFeeData, build_transaction
+from ledgerproof.stripe_io.mapping import (
+    MissingFeeData,
+    build_transaction,
+    money_movement_object_id,
+)
 
 CREATED = 1754300000  # 2026-08-04T09:33:20Z
 
@@ -170,18 +174,41 @@ def test_zero_fee_charge_maps_to_two_entries_and_balances():
 
 
 # --- charge.refunded ---------------------------------------------------------
+# Keyed by the NEWEST refund's id (refunds.data[0], newest-first per Stripe)
+# and posting THAT refund's amount — two partial refunds of one charge are two
+# distinct money movements, not one cumulative row.
 
 
-def test_charge_refunded():
+def refunded_event(
+    event_id: str = "evt_refund_01",
+    charge_id: str = "ch_3QwXyz0004",
+    *,
+    amount: int = 5000,
+    amount_refunded: int = 5000,
+    refunds_data: list | None = None,
+    **overrides,
+) -> dict:
     obj = {
-        "id": "ch_3QwXyz0004",
+        "id": charge_id,
         "object": "charge",
-        "amount": 5000,
-        "amount_refunded": 5000,
+        "amount": amount,
+        "amount_refunded": amount_refunded,
         "currency": "usd",
-        "refunded": True,
+        "refunded": amount_refunded >= amount,
     }
-    txn = build_transaction(envelope("evt_refund_01", "charge.refunded", obj))
+    if refunds_data is not None:
+        obj["refunds"] = {"object": "list", "data": refunds_data, "has_more": False}
+    obj.update(overrides)
+    return envelope(event_id, "charge.refunded", obj)
+
+
+def refund(refund_id: str, amount: int) -> dict:
+    return {"id": refund_id, "object": "refund", "amount": amount, "currency": "usd"}
+
+
+def test_charge_refunded_keyed_by_refund_id_with_refund_amount():
+    event = refunded_event(refunds_data=[refund("re_3QwXyzRf01", 5000)])
+    txn = build_transaction(event)
     assert txn is not None
     assert_balanced(txn)
     assert len(txn.entries) == 2
@@ -193,22 +220,64 @@ def test_charge_refunded():
         "credit",
         5000,
     )
+    assert txn.stripe_object_id == "re_3QwXyzRf01"
 
 
-def test_partial_refund_uses_amount_refunded_not_amount():
-    obj = {
-        "id": "ch_3QwXyz0005",
-        "object": "charge",
-        "amount": 5000,
-        "amount_refunded": 1200,
-        "currency": "usd",
-        "refunded": False,
-    }
-    txn = build_transaction(envelope("evt_refund_02", "charge.refunded", obj))
+def test_second_partial_refund_posts_its_own_delta_under_its_own_id():
+    # Cumulative amount_refunded is 4000 but THIS event's refund is the newest
+    # list element (1500); posting 4000 would double-count the first partial.
+    event = refunded_event(
+        "evt_refund_02",
+        "ch_3QwXyz0005",
+        amount=5000,
+        amount_refunded=4000,
+        refunds_data=[refund("re_newest02", 1500), refund("re_older01", 2500)],
+    )
+    txn = build_transaction(event)
+    assert txn is not None
+    assert_balanced(txn)
+    assert entry_for(txn, "refunds_contra").amount_minor == 1500
+    assert entry_for(txn, "stripe_balance").amount_minor == 1500
+    assert txn.stripe_object_id == "re_newest02"
+
+
+def test_refund_without_refunds_list_falls_back_to_amount_refunded_and_charge_id():
+    event = refunded_event(
+        "evt_refund_03", "ch_3QwXyz0006", amount=5000, amount_refunded=1200
+    )
+    txn = build_transaction(event)
     assert txn is not None
     assert_balanced(txn)
     assert entry_for(txn, "refunds_contra").amount_minor == 1200
     assert entry_for(txn, "stripe_balance").amount_minor == 1200
+    assert txn.stripe_object_id == "ch_3QwXyz0006"
+
+
+# --- money_movement_object_id ------------------------------------------------
+
+
+def test_money_movement_object_id_charge_refunded_is_newest_refund_id():
+    event = refunded_event(
+        refunds_data=[refund("re_newest", 1000), refund("re_older", 2000)],
+        amount_refunded=3000,
+    )
+    assert money_movement_object_id(event) == "re_newest"
+
+
+def test_money_movement_object_id_charge_refunded_falls_back_to_charge_id():
+    assert money_movement_object_id(refunded_event()) == "ch_3QwXyz0004"
+    empty_list = refunded_event(refunds_data=[])
+    assert money_movement_object_id(empty_list) == "ch_3QwXyz0004"
+
+
+def test_money_movement_object_id_charge_succeeded_is_charge_id():
+    assert money_movement_object_id(charge_succeeded_event()) == "ch_3QwXyz0001"
+
+
+def test_money_movement_object_id_missing_id_is_none():
+    no_id = envelope("evt_x_01", "charge.succeeded", {"object": "charge"})
+    assert money_movement_object_id(no_id) is None
+    assert money_movement_object_id({"id": "evt_x_02", "type": "charge.succeeded"}) is None
 
 
 # --- charge.dispute.created --------------------------------------------------

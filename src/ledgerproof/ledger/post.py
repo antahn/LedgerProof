@@ -16,9 +16,10 @@ import enum
 import random
 import time
 import uuid
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Callable, Literal
+from typing import Literal
 
 import psycopg
 

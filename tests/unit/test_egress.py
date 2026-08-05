@@ -242,6 +242,25 @@ def test_idempotency_cache_replays_and_rejects_param_mismatch() -> None:
     assert stripe.created == 1  # the charge was only ever created once
 
 
+def test_replayed_count_increments_on_cached_error_replay() -> None:
+    # Stripe replays cached 4xx bodies with the same Idempotent-Replayed
+    # header; the replay metric must count those, not only 2xx replays.
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            400,
+            headers={"Idempotent-Replayed": "true"},
+            json={"error": {"message": "cached decline", "code": "card_declined"}},
+        )
+
+    client, sleeps = make_client(handler)
+    with pytest.raises(StripeError) as exc_info:
+        client.post("/v1/charges", {"amount": 100}, idempotency_key="key-cached-400")
+
+    assert exc_info.value.status_code == 400
+    assert client.replayed_count == 1
+    assert sleeps == []  # 4xx still does not retry
+
+
 # --- (f) Stripe-Should-Retry outranks the status code ---------------------------------
 
 
@@ -307,6 +326,37 @@ def test_get_carries_no_idempotency_key() -> None:
     assert seen["has_key"] is False
     assert seen["params"] == {"limit": "3"}
     assert seen["auth"] == "Bearer sk_test_dummy"
+
+
+# --- malformed 2xx body surfaces as StripeError, not a raw decode error ---------------
+
+
+def test_non_json_200_raises_stripe_error_with_status_code() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, content=b"<html>not json</html>")
+
+    client, _ = make_client(handler)
+    with pytest.raises(StripeError) as exc_info:
+        client.post("/v1/charges", {"amount": 1})
+
+    err = exc_info.value
+    assert err.status_code == 200
+    assert err.message == "malformed success response body"
+
+
+# --- close() / context manager releases the underlying httpx client -------------------
+
+
+def test_context_manager_closes_underlying_httpx_client() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"id": "ch_ctx"})
+
+    client, _ = make_client(handler)
+    with client as ctx:
+        assert ctx is client
+        assert ctx.post("/v1/charges", {"amount": 1}) == {"id": "ch_ctx"}
+        assert not client._client.is_closed
+    assert client._client.is_closed
 
 
 # --- form encoding: Stripe bracket notation -------------------------------------------

@@ -8,6 +8,12 @@ end-to-end: replaying a task for an already-posted event is a no-op by way of
 the transactions table's unique constraints, so redelivery after a crash is
 always safe (acks_late relies on exactly that).
 
+Failure handling: transient failures (DB down, Stripe fetch error) must NOT
+be acked-and-forgotten — the task retries with exponential backoff and jitter
+(max_retries=5, countdown capped at 60s); once retries are exhausted the
+stripe_events row is marked 'failed' and the exception re-raised so the
+failure is visible, not silent.
+
 Windows note: the dev worker runs with --pool=solo (prefork is not supported
 on Windows); the PARTIAL_WRITE fault kills this process mid-transaction.
 
@@ -16,11 +22,16 @@ on Windows); the PARTIAL_WRITE fault kills this process mid-transaction.
 
 from __future__ import annotations
 
+import logging
+import random
+
 from celery import Celery
 
 from ledgerproof.config import get_settings
 from ledgerproof.ingest.queue import PROCESS_EVENT_TASK
 from ledgerproof.worker import handlers
+
+logger = logging.getLogger(__name__)
 
 celery_app = Celery("ledgerproof", broker=get_settings().redis_url, backend=None)
 celery_app.conf.update(
@@ -29,8 +40,8 @@ celery_app.conf.update(
 )
 
 
-@celery_app.task(name=PROCESS_EVENT_TASK)
-def process_event(event: dict) -> str:
+@celery_app.task(name=PROCESS_EVENT_TASK, bind=True, max_retries=5)
+def process_event(self, event: dict) -> str:
     settings = get_settings()
     client = None
     if settings.stripe_secret_key:
@@ -39,4 +50,28 @@ def process_event(event: dict) -> str:
         from ledgerproof.stripe_io.client import StripeEgressClient
 
         client = StripeEgressClient(settings.stripe_secret_key)
-    return handlers.handle_event(event, db_url=settings.app_database_url, client=client)
+    try:
+        return handlers.handle_event(
+            event, db_url=settings.app_database_url, client=client
+        )
+    except Exception as exc:
+        if self.request.retries < self.max_retries:
+            # Transient failure (DB down, Stripe fetch error): retry with
+            # exponential backoff, capped at 60s, jittered so many failing
+            # tasks do not realign their retry schedules.
+            raise self.retry(
+                exc=exc,
+                countdown=min(2**self.request.retries, 60) * (0.5 + random.random()),
+            )
+        # Retries exhausted: record the terminal failure in the event log,
+        # then re-raise so the failure is visible instead of acked away.
+        # handle_event is idempotent end-to-end, so a later manual replay of
+        # a 'failed' event is always safe.
+        try:
+            handlers._mark_status(settings.app_database_url, event, "failed")
+        except Exception:  # the DB being unreachable IS the terminal case
+            logger.exception(
+                "could not mark event %s as failed; re-raising the original error",
+                event.get("id"),
+            )
+        raise

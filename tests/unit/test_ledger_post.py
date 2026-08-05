@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import random
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 import psycopg
@@ -24,7 +24,7 @@ def _txn(
 ) -> LedgerTransaction:
     return LedgerTransaction(
         id=uuid.uuid4(),
-        occurred_at=datetime.now(timezone.utc),
+        occurred_at=datetime.now(UTC),
         entries=entries,
         stripe_event_id=event_id,
         stripe_object_id=object_id,
@@ -41,7 +41,7 @@ _CHARGE_ENTRIES = (
 
 def _count(db_url: str, table: str) -> int:
     with psycopg.connect(db_url) as conn:
-        return conn.execute(f"SELECT count(*) FROM {table}").fetchone()[0]  # noqa: S608
+        return conn.execute(f"SELECT count(*) FROM {table}").fetchone()[0]
 
 
 def test_posted_on_success(ledger_db: str) -> None:
@@ -142,22 +142,79 @@ def _install_flaky_connect(
 def test_serialization_failure_retried_with_jittered_backoff(
     ledger_db: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    state, real_connect = _install_flaky_connect(monkeypatch, failures=2)
-    sleeps: list[float] = []
+    """Retry mechanics AND real jitter: the same forced failure sequence with
+    different rngs must produce different delays — a deterministic backoff
+    (which also yields two distinct, growing delays) must fail this test."""
+    real_connect = psycopg.connect
 
-    outcome = post_transaction(
-        ledger_db, _txn(_CHARGE_ENTRIES), sleep=sleeps.append, rng=random.Random(42)
-    )
+    def run(seed: int) -> list[float]:
+        # Fresh patch per run so every run sees the SAME forced 40001 sequence.
+        with monkeypatch.context() as mp:
+            state, _ = _install_flaky_connect(mp, failures=2)
+            sleeps: list[float] = []
+            outcome = post_transaction(
+                ledger_db, _txn(_CHARGE_ENTRIES), sleep=sleeps.append, rng=random.Random(seed)
+            )
+        assert outcome is PostOutcome.POSTED
+        assert state["connects"] == 3  # two failed attempts + the success
+        assert len(sleeps) == 2  # slept between attempts only
+        return sleeps
+
+    seed1 = run(1)
+    seed2 = run(2)
+
+    # Jitter is real: different rngs, same failures, different delay sequences.
+    assert seed1 != seed2
+    # ...and reproducible: the same seed replays the same sequence.
+    assert run(1) == seed1
+
+    # Every delay stays inside the documented envelope:
+    # min(0.05 * 2**(attempt-1), 2.0) * jitter, with jitter in [0.5, 1.5).
+    for sleeps in (seed1, seed2):
+        for attempt, delay in enumerate(sleeps, start=1):
+            base = min(0.05 * 2 ** (attempt - 1), 2.0)
+            assert base * 0.5 <= delay < base * 1.5
+
+    with real_connect(ledger_db) as conn:
+        assert conn.execute("SELECT count(*) FROM transactions").fetchone()[0] == 3
+
+
+class _IsolationRecordingConn:
+    """Delegates to a real connection; records isolation_level at commit time."""
+
+    def __init__(self, real: psycopg.Connection, recorded: list[Any]) -> None:
+        object.__setattr__(self, "_real", real)
+        object.__setattr__(self, "_recorded", recorded)
+
+    def commit(self) -> None:
+        self._recorded.append(self._real.isolation_level)
+        self._real.commit()
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._real, name)
+
+    def __setattr__(self, name: str, value: Any) -> None:
+        setattr(self._real, name, value)
+
+
+def test_post_transaction_commits_at_serializable(
+    ledger_db: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """SERIALIZABLE is actually in effect on the REAL post path at the moment
+    of commit. If the isolation_level assignment in _attempt is deleted, the
+    recorded value is None (server default), and this test fails."""
+    real_connect = psycopg.connect
+    recorded: list[Any] = []
+
+    def recording_connect(url: str, *args: Any, **kwargs: Any) -> _IsolationRecordingConn:
+        return _IsolationRecordingConn(real_connect(url, *args, **kwargs), recorded)
+
+    monkeypatch.setattr(psycopg, "connect", recording_connect)
+
+    outcome = post_transaction(ledger_db, _txn(_CHARGE_ENTRIES))
 
     assert outcome is PostOutcome.POSTED
-    assert state["connects"] == 3  # two failed attempts + the success
-    assert len(sleeps) == 2  # slept between attempts only
-    assert all(d > 0 for d in sleeps)
-    assert sleeps[0] != sleeps[1]  # jitter: delays are not identical
-    # Exponential base doubles; jitter factor is in [0.5, 1.5), so even the
-    # most extreme draws keep the second delay above the first's minimum.
-    assert sleeps[1] > sleeps[0] / 3
-
+    assert recorded == [psycopg.IsolationLevel.SERIALIZABLE]
     with real_connect(ledger_db) as conn:
         assert conn.execute("SELECT count(*) FROM transactions").fetchone()[0] == 1
 

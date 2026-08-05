@@ -3,9 +3,10 @@ balanced transactions posted through the real write path (brief §6 Phase 1)."""
 
 from __future__ import annotations
 
+import itertools
 import json
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
@@ -49,7 +50,7 @@ def _side(draw: st.DrawFn, total: int) -> Side:
             draw(st.sets(st.integers(min_value=1, max_value=total - 1), min_size=k - 1, max_size=k - 1))
         )
         bounds = [0, *cuts, total]
-        parts = [hi - lo for lo, hi in zip(bounds, bounds[1:])]
+        parts = [hi - lo for lo, hi in itertools.pairwise(bounds)]
     return [(draw(st.sampled_from(SEEDED_ACCOUNTS)), part) for part in parts]
 
 
@@ -81,7 +82,7 @@ def test_invariant_holds_after_randomized_transactions(
             Entry(acct, "credit", amt) for acct, amt in credits
         )
         txn = LedgerTransaction(
-            id=uuid.uuid4(), occurred_at=datetime.now(timezone.utc), entries=entries
+            id=uuid.uuid4(), occurred_at=datetime.now(UTC), entries=entries
         )
         assert post_transaction(ledger_db, txn) is PostOutcome.POSTED
         _posted_total += 1

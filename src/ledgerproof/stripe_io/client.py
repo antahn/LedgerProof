@@ -10,7 +10,9 @@ Contract:
   key for 24h and reusing it returns the same 400 forever.
 - Honor Stripe-Should-Retry: true -> retry (after backoff), false -> stop,
   absent -> decide from the status code.
-- Count Idempotent-Replayed: true responses as a replay metric.
+- Count Idempotent-Replayed: true responses as a replay metric — on EVERY
+  response, success or error: Stripe replays cached 4xx/5xx bodies with the
+  same header, and those replays must be visible in the metric too.
 - Backoff: one quick retry, then exponential with random jitter — without
   jitter, simultaneous failures align their retries into a thundering herd.
 - Attach a local identifier via metadata on resource creation for later
@@ -26,6 +28,7 @@ import time
 import urllib.parse
 import uuid
 from collections.abc import Callable
+from typing import Self
 
 import httpx
 
@@ -84,6 +87,13 @@ class StripeEgressClient:
     sent at most ``max_retries + 1`` times; exhausting retries raises a
     StripeError describing the last failure. ``sleep`` and ``rng`` are
     injectable so tests can observe and reproduce the backoff schedule.
+
+    The client owns an ``httpx.Client`` with pooled connections. Callers that
+    own a StripeEgressClient should release it when done — either call
+    :meth:`close` or use the client as a context manager::
+
+        with StripeEgressClient(api_key) as stripe:
+            stripe.post("/v1/charges", {...})
     """
 
     def __init__(
@@ -106,6 +116,21 @@ class StripeEgressClient:
             transport=transport,
             timeout=httpx.Timeout(30.0),
         )
+
+    def close(self) -> None:
+        """Close the underlying httpx client and its connection pool.
+
+        Callers that own this client are responsible for closing it, either
+        directly or by using the client as a context manager. Safe to call
+        more than once.
+        """
+        self._client.close()
+
+    def __enter__(self) -> Self:
+        return self
+
+    def __exit__(self, *exc_info: object) -> None:
+        self.close()
 
     def post(self, path: str, params: dict, *, idempotency_key: str | None = None) -> dict:
         """POST with a fresh UUID4 Idempotency-Key minted for THIS call.
@@ -154,10 +179,22 @@ class StripeEgressClient:
                 self._sleep(self._backoff_delay(attempt))
                 continue
 
+            # Count replays on EVERY response before branching: Stripe replays
+            # cached 4xx/5xx bodies with the same Idempotent-Replayed header.
+            if response.headers.get("Idempotent-Replayed", "").strip().lower() == "true":
+                self.replayed_count += 1
+
             if response.is_success:
-                if response.headers.get("Idempotent-Replayed", "").strip().lower() == "true":
-                    self.replayed_count += 1
-                return response.json()
+                try:
+                    return response.json()
+                except ValueError as exc:
+                    # Empty or non-JSON 2xx body: surface as a StripeError
+                    # instead of leaking a raw json.JSONDecodeError.
+                    raise StripeError(
+                        "malformed success response body",
+                        status_code=response.status_code,
+                        request_id=response.headers.get("Request-Id"),
+                    ) from exc
 
             error = self._error_from_response(response)
             if not self._retryable(response) or last_attempt:

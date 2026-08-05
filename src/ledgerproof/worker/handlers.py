@@ -15,17 +15,24 @@ from typing import TYPE_CHECKING
 import psycopg
 from psycopg.types.json import Json
 
-from ledgerproof.ingest.dedupe import object_id_of
 from ledgerproof.ledger.post import PostOutcome, post_transaction
-from ledgerproof.stripe_io.mapping import MissingFeeData, build_transaction
+from ledgerproof.stripe_io.mapping import (
+    MissingFeeData,
+    build_transaction,
+    money_movement_object_id,
+)
 
 if TYPE_CHECKING:
     from ledgerproof.stripe_io.client import StripeEgressClient
 
+# The subscribed-event source of truth (brief §5.3: subscribe only to what you
+# handle). payment_intent.succeeded is deliberately ABSENT: a PaymentIntents
+# payment emits it alongside charge.succeeded for the SAME money movement, and
+# handling both double-posts the payment — charge.succeeded carries the money.
+# A PI event reaching the worker returns 'ignored' like any unhandled type.
 HANDLED_EVENT_TYPES = frozenset(
     {
         "charge.succeeded",
-        "payment_intent.succeeded",
         "charge.refunded",
         "charge.dispute.created",
         "payout.paid",
@@ -102,7 +109,13 @@ def _mark_status(db_url: str, event: dict, status: str) -> None:
                 "INSERT INTO stripe_events (id, event_type, object_id, payload, status)"
                 " VALUES (%s, %s, %s, %s, %s)"
                 " ON CONFLICT (id) DO UPDATE SET status = EXCLUDED.status",
-                (event["id"], event.get("type"), object_id_of(event), Json(event), status),
+                (
+                    event["id"],
+                    event.get("type"),
+                    money_movement_object_id(event),
+                    Json(event),
+                    status,
+                ),
             )
         except psycopg.errors.UniqueViolation:
             # A different event.id already holds this (event_type, object_id);

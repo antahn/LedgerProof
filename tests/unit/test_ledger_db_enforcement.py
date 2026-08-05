@@ -112,6 +112,84 @@ def test_truncate_transactions_cascade_raises_append_only(
     ledger_conn.rollback()
 
 
+def test_cross_currency_entry_rejected_by_composite_fk(ledger_conn: psycopg.Connection) -> None:
+    """An entry's currency must match its account's currency — enforced by the
+    (account_id, currency) -> accounts (id, currency) composite FK, so the
+    statement fails immediately, before any deferred trigger gets involved."""
+    txn_id = uuid.uuid4()
+    _insert_txn(ledger_conn, txn_id)
+    with pytest.raises(psycopg.errors.ForeignKeyViolation) as excinfo:
+        ledger_conn.execute(
+            "INSERT INTO entries (transaction_id, account_id, dir, amount_minor, currency)"
+            " SELECT %s, id, 'debit', 500, 'EUR' FROM accounts WHERE name = 'stripe_balance'",
+            (txn_id,),
+        )
+    assert "entries_currency_matches_account" in str(excinfo.value)
+    ledger_conn.rollback()
+    assert ledger_conn.execute("SELECT count(*) FROM entries").fetchone()[0] == 0
+
+
+# UPDATE/DELETE as ledger_app may die on privilege (role lacks the grant) or on
+# the append-only trigger (if a grant ever crept back in) — either is the wall.
+_MUTATION_WALL = (psycopg.errors.InsufficientPrivilege, psycopg.errors.RaiseException)
+
+
+def test_ledger_app_can_insert_but_not_mutate_ledger(app_db_url: str) -> None:
+    """Least-privilege proof over the actual application role."""
+    conn = psycopg.connect(app_db_url)
+    try:
+        txn_id = uuid.uuid4()
+        _insert_txn(conn, txn_id)
+        _insert_entry(conn, txn_id, "stripe_balance", "debit", 500)
+        _insert_entry(conn, txn_id, "revenue", "credit", 500)
+        conn.commit()  # a balanced pair posts fine under the app role
+        assert conn.execute("SELECT count(*) FROM entries").fetchone()[0] == 2
+
+        with pytest.raises(_MUTATION_WALL):
+            conn.execute("UPDATE entries SET amount_minor = amount_minor + 1")
+        conn.rollback()
+        with pytest.raises(_MUTATION_WALL):
+            conn.execute("DELETE FROM entries")
+        conn.rollback()
+        with pytest.raises(_MUTATION_WALL):
+            conn.execute("UPDATE transactions SET memo = 'rewritten history'")
+        conn.rollback()
+        with pytest.raises(_MUTATION_WALL):
+            conn.execute("DELETE FROM transactions")
+        conn.rollback()
+
+        assert conn.execute("SELECT sum(amount_minor) FROM entries").fetchone()[0] == 1000
+    finally:
+        conn.close()
+
+
+def test_ledger_app_stripe_events_update_limited_to_status(app_db_url: str) -> None:
+    """The worker's only legitimate stripe_events mutation is status."""
+    conn = psycopg.connect(app_db_url)
+    try:
+        conn.execute(
+            "INSERT INTO stripe_events (id, event_type, object_id, payload)"
+            " VALUES ('evt_priv_1', 'charge.succeeded', 'ch_priv_1', '{}'::jsonb)"
+        )
+        conn.commit()
+
+        with pytest.raises(psycopg.errors.InsufficientPrivilege):
+            conn.execute(
+                "UPDATE stripe_events SET payload = '{\"forged\": true}'::jsonb"
+                " WHERE id = 'evt_priv_1'"
+            )
+        conn.rollback()
+
+        conn.execute("UPDATE stripe_events SET status = 'processed' WHERE id = 'evt_priv_1'")
+        conn.commit()
+        row = conn.execute(
+            "SELECT status, payload FROM stripe_events WHERE id = 'evt_priv_1'"
+        ).fetchone()
+        assert row == ("processed", {})
+    finally:
+        conn.close()
+
+
 def test_zero_entry_transaction_rejected_at_commit(ledger_db: str) -> None:
     conn = psycopg.connect(ledger_db)
     try:

@@ -23,9 +23,14 @@ PROCESS_EVENT_TASK = "ledgerproof.process_event"
 
 
 def make_celery_enqueue(celery_app: Celery) -> EnqueueFn:
-    """An EnqueueFn that .delay()s the worker's process_event task."""
+    """An EnqueueFn that send_task()s the worker's process_event task.
+
+    send_task publishes by NAME: the ingest process never imports the worker
+    module, so the task is not in celery_app.tasks here — a registry lookup
+    (celery_app.tasks[...]) KeyErrors in this process.
+    """
 
     def enqueue(event: dict) -> None:
-        celery_app.tasks[PROCESS_EVENT_TASK].delay(event)
+        celery_app.send_task(PROCESS_EVENT_TASK, args=[event])
 
     return enqueue

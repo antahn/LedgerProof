@@ -1,8 +1,11 @@
 """Integration tests for the webhook ingress (LEDGERPROOF_BRIEF §5.3).
 
 Real Deduper against the scratch database; recording-fake enqueue; fixed
-webhook secret. The endpoint's whole contract: raw body -> verify -> dedupe ->
-enqueue -> 200, and nothing heavier.
+webhook secret. The endpoint's whole contract: size cap -> raw body -> verify
+-> dedupe (row 'received') -> enqueue -> flip to 'queued' -> 200, and nothing
+heavier. The outbox tests prove the demonstrated failure is gone: an enqueue
+crash leaves a 'received' row that the next delivery recovers instead of a
+200 'duplicate' that would silence Stripe's retries forever.
 """
 
 from __future__ import annotations
@@ -14,7 +17,7 @@ import psycopg
 import pytest
 from fastapi.testclient import TestClient
 
-from ledgerproof.ingest.app import create_app
+from ledgerproof.ingest.app import MAX_BODY_BYTES, create_app
 from ledgerproof.ingest.dedupe import Deduper
 from ledgerproof.stripe_io.signature import sign
 
@@ -43,6 +46,48 @@ def make_event(
     }
 
 
+def make_refund_event(
+    event_id: str,
+    *,
+    refund_id: str,
+    charge_id: str = "ch_100",
+) -> dict:
+    """charge.refunded envelope; refunds.data[0] is the newest refund."""
+    return {
+        "id": event_id,
+        "object": "event",
+        "type": "charge.refunded",
+        "created": int(time.time()),
+        "data": {
+            "object": {
+                "id": charge_id,
+                "object": "charge",
+                "amount": 1000,
+                "amount_refunded": 400,
+                "currency": "usd",
+                "refunds": {
+                    "object": "list",
+                    "data": [{"id": refund_id, "object": "refund", "amount": 400}],
+                },
+            }
+        },
+    }
+
+
+class FlakyEnqueue:
+    """EnqueueFn fake: raises on the first `failures` calls, records after."""
+
+    def __init__(self, failures: int) -> None:
+        self.failures = failures
+        self.sent: list[dict] = []
+
+    def __call__(self, event: dict) -> None:
+        if self.failures > 0:
+            self.failures -= 1
+            raise ConnectionError("queue backend unavailable")
+        self.sent.append(event)
+
+
 @pytest.fixture()
 def enqueued() -> list[dict]:
     return []
@@ -58,8 +103,8 @@ def client(db_url: str, enqueued: list[dict]) -> TestClient:
     return TestClient(app)
 
 
-def deliver(client: TestClient, event: dict, *, secret: str = WEBHOOK_SECRET):
-    body = json.dumps(event, separators=(",", ":")).encode()
+def deliver(client: TestClient, payload, *, secret: str = WEBHOOK_SECRET):
+    body = json.dumps(payload, separators=(",", ":")).encode()
     return client.post(
         "/webhook", content=body, headers={"Stripe-Signature": sign(body, secret)}
     )
@@ -90,6 +135,8 @@ def test_valid_signature_queues_once(client, db_url, enqueued) -> None:
     assert resp.status_code == 200
     assert resp.json() == {"status": "queued"}
     assert enqueued == [event]
+    # Row was inserted 'received' before the enqueue and flipped 'queued'
+    # only after the enqueue succeeded (transactional-outbox shape).
     assert event_rows(db_url) == [("evt_001", "charge.succeeded", "ch_001", "queued")]
 
 
@@ -151,3 +198,135 @@ def test_200_before_any_heavy_work(client, db_url, enqueued) -> None:
     assert row_count(db_url, "entries") == 0
     assert len(enqueued) == 1
     assert event_rows(db_url) == [("evt_001", "charge.succeeded", "ch_001", "queued")]
+
+
+# ---------------------------------------------------------------------------
+# Transactional outbox: recorded-but-never-enqueued events are recoverable.
+# ---------------------------------------------------------------------------
+
+
+def test_enqueue_failure_then_redelivery_recovers(db_url) -> None:
+    # The exact demonstrated failure: enqueue dies AFTER the dedupe row is
+    # durable. The old code answered Stripe's retry with 200 'duplicate' and
+    # the event was lost forever.
+    flaky = FlakyEnqueue(failures=1)
+    app = create_app(webhook_secret=WEBHOOK_SECRET, deduper=Deduper(db_url), enqueue=flaky)
+    client = TestClient(app)
+    event = make_event()
+
+    first = deliver(client, event)
+    assert first.status_code == 500  # explicit 500 so Stripe retries
+    assert flaky.sent == []
+    assert event_rows(db_url) == [("evt_001", "charge.succeeded", "ch_001", "received")]
+
+    # Stripe retries the exact same signed payload; enqueue is healthy now.
+    second = deliver(client, event)
+    assert second.status_code == 200
+    assert second.json() == {"status": "queued"}  # recovery, not 'duplicate'
+    assert flaky.sent == [event]  # enqueued exactly once overall
+    assert event_rows(db_url) == [("evt_001", "charge.succeeded", "ch_001", "queued")]
+
+
+def test_received_row_recovered_via_object_key_match(db_url) -> None:
+    # Recovery must also work when the retry arrives as a DISTINCT event for
+    # the same state change (blocked by the object key, not the event id).
+    # The STORED payload is re-enqueued — that is the row the worker advances.
+    flaky = FlakyEnqueue(failures=1)
+    app = create_app(webhook_secret=WEBHOOK_SECRET, deduper=Deduper(db_url), enqueue=flaky)
+    client = TestClient(app)
+    original = make_event(event_id="evt_001", object_id="ch_001")
+
+    assert deliver(client, original).status_code == 500
+    second = deliver(client, make_event(event_id="evt_002", object_id="ch_001"))
+    assert second.status_code == 200
+    assert second.json() == {"status": "queued"}
+    assert flaky.sent == [original]
+    assert event_rows(db_url) == [("evt_001", "charge.succeeded", "ch_001", "queued")]
+
+
+def test_duplicate_of_queued_row_not_reenqueued(client, db_url, enqueued) -> None:
+    event = make_event()
+    assert deliver(client, event).json() == {"status": "queued"}
+    assert event_rows(db_url) == [("evt_001", "charge.succeeded", "ch_001", "queued")]
+
+    dup = deliver(client, event)
+    assert dup.status_code == 200
+    assert dup.json() == {"status": "duplicate"}
+    assert len(enqueued) == 1  # NOT re-enqueued: the row already reached the queue
+    assert event_rows(db_url) == [("evt_001", "charge.succeeded", "ch_001", "queued")]
+
+
+def test_worker_written_status_never_clobbered(client, db_url, enqueued) -> None:
+    # mark_queued is guarded on status='received': a late redelivery must not
+    # regress a row the worker has already advanced.
+    event = make_event()
+    deliver(client, event)
+    with psycopg.connect(db_url) as conn:
+        conn.execute("UPDATE stripe_events SET status = 'processed' WHERE id = 'evt_001'")
+
+    dup = deliver(client, event)
+    assert dup.json() == {"status": "duplicate"}
+    assert len(enqueued) == 1
+    assert event_rows(db_url) == [("evt_001", "charge.succeeded", "ch_001", "processed")]
+
+
+# ---------------------------------------------------------------------------
+# Signed-but-malformed bodies and the size cap.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        [1, 2, 3],
+        {"foo": 1},
+        {"id": "evt_x"},  # missing type
+        {"id": 123, "type": "charge.succeeded"},  # id not a string
+    ],
+)
+def test_signed_non_event_json_rejected(client, db_url, enqueued, payload) -> None:
+    resp = deliver(client, payload)
+    assert resp.status_code == 400
+    assert resp.json() == {"error": "not an event"}
+    assert enqueued == []
+    assert event_rows(db_url) == []
+
+
+def test_oversized_body_rejected_without_row_or_enqueue(client, db_url, enqueued) -> None:
+    event = make_event()
+    event["padding"] = "x" * (MAX_BODY_BYTES + 1)
+    resp = deliver(client, event)  # even a VALID signature does not help
+    assert resp.status_code == 400
+    assert resp.json() == {"error": "body too large"}
+    assert enqueued == []
+    assert event_rows(db_url) == []
+
+
+# ---------------------------------------------------------------------------
+# Money-movement identity: refunds dedupe on the refund id, not the charge id.
+# ---------------------------------------------------------------------------
+
+
+def test_two_partial_refunds_of_one_charge_both_accepted(client, db_url, enqueued) -> None:
+    # Two partial refunds of one charge are two distinct money movements;
+    # keying dedupe on data.object.id (the charge) would drop the second one.
+    first = deliver(client, make_refund_event("evt_r1", refund_id="re_001"))
+    second = deliver(client, make_refund_event("evt_r2", refund_id="re_002"))
+    assert first.json() == {"status": "queued"}
+    assert second.json() == {"status": "queued"}
+    assert len(enqueued) == 2
+    assert event_rows(db_url) == [
+        ("evt_r1", "charge.refunded", "re_001", "queued"),
+        ("evt_r2", "charge.refunded", "re_002", "queued"),
+    ]
+
+
+def test_same_refund_id_twice_is_duplicate(client, db_url, enqueued) -> None:
+    first = deliver(client, make_refund_event("evt_r1", refund_id="re_001"))
+    # Distinct event id, same refund: same money movement, must dedupe.
+    second = deliver(client, make_refund_event("evt_r2", refund_id="re_001"))
+    assert first.json() == {"status": "queued"}
+    assert second.status_code == 200
+    assert second.json() == {"status": "duplicate"}
+    assert len(enqueued) == 1
+    assert row_count(db_url, "stripe_events") == 1

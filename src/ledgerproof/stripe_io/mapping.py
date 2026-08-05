@@ -3,7 +3,12 @@
 Contract (each row balances, per §4.3 of the brief):
 - charge.succeeded / payment_intent.succeeded:
     DR stripe_balance (net), DR processing_fees (fee) / CR revenue (gross)
+    The PAIR is ONE money movement — dispatch subscribes to charge.succeeded
+    only (see build_transaction's docstring).
 - charge.refunded:  DR refunds_contra / CR stripe_balance
+    Amount and object id come from the NEWEST refund (obj.refunds.data[0])
+    when the refunds list is present: each charge.refunded event posts ITS
+    refund's delta, so two partial refunds are two balanced transactions.
 - charge.dispute.created:
     DR dispute_losses (amount), DR processing_fees (dispute fee)
     / CR stripe_balance (amount + fee)
@@ -36,6 +41,38 @@ import uuid
 from datetime import UTC, datetime
 
 from ledgerproof.ledger.post import Direction, Entry, LedgerTransaction
+
+
+def money_movement_object_id(event: dict) -> str | None:
+    """The id of the OBJECT THAT MOVED MONEY, not merely data.object.id.
+
+    For charge.refunded this is the newest refund's id (obj.refunds.data[0].id)
+    when present — two partial refunds of one charge are two distinct money
+    movements and must not collide on the (event_type, object_id) dedupe key.
+    Falls back to data.object.id; None when the payload lacks an id.
+    """
+    data_obj = event.get("data", {}).get("object")
+    if not isinstance(data_obj, dict):
+        return None
+    if event.get("type") == "charge.refunded":
+        refund = _newest_refund(data_obj)
+        if refund is not None:
+            rid = refund.get("id")
+            if isinstance(rid, str):
+                return rid
+    oid = data_obj.get("id")
+    return oid if isinstance(oid, str) else None
+
+
+def _newest_refund(obj: dict) -> dict | None:
+    """obj.refunds.data[0] (Stripe lists refunds newest-first), else None."""
+    refunds = obj.get("refunds")
+    if not isinstance(refunds, dict):
+        return None
+    data = refunds.get("data")
+    if isinstance(data, list) and data and isinstance(data[0], dict):
+        return data[0]
+    return None
 
 
 class MissingFeeData(Exception):
@@ -88,6 +125,15 @@ def build_transaction(event: dict, *, fee_minor: int | None = None) -> LedgerTra
     Raises ValueError for any event type this mapping does not handle, and
     MissingFeeData when a required fee cannot be resolved from the payload
     or the fee_minor parameter.
+
+    payment_intent.succeeded is a documented ALTERNATE mapping of the same
+    money movement as charge.succeeded, unsubscribed by default: a normal
+    PaymentIntents payment emits BOTH events for ONE payment, keyed by
+    different object ids (pi_... vs ch_...), so subscribing to both without
+    normalization double-posts the payment. That is why the worker's dispatch
+    (handlers.HANDLED_EVENT_TYPES) handles only charge.succeeded — the charge
+    carries the money. Real PI payloads also carry latest_charge as a STRING
+    id, not an expanded object, so the fee usually needs a fetch anyway.
     """
     etype: str = event["type"]
     obj: dict = event["data"]["object"]
@@ -121,7 +167,16 @@ def build_transaction(event: dict, *, fee_minor: int | None = None) -> LedgerTra
         add("processing_fees", "debit", fee)
         add("revenue", "credit", gross)
     elif etype == "charge.refunded":
-        amount = obj["amount_refunded"]
+        # Each charge.refunded event posts ITS refund's delta — the newest
+        # refund's amount — never the cumulative amount_refunded, so a second
+        # partial refund is a second balanced transaction instead of a dropped
+        # duplicate. Fall back to amount_refunded when the refunds list is
+        # absent (then it equals the single refund's amount).
+        refund = _newest_refund(obj)
+        if refund is not None and "amount" in refund:
+            amount = refund["amount"]
+        else:
+            amount = obj["amount_refunded"]
         add("refunds_contra", "debit", amount)
         add("stripe_balance", "credit", amount)
     elif etype == "charge.dispute.created":
@@ -140,6 +195,6 @@ def build_transaction(event: dict, *, fee_minor: int | None = None) -> LedgerTra
         occurred_at=datetime.fromtimestamp(event["created"], tz=UTC),
         entries=tuple(entries),
         stripe_event_id=event["id"],
-        stripe_object_id=obj["id"],
+        stripe_object_id=money_movement_object_id(event),
         event_type=etype,
     )

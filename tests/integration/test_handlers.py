@@ -7,6 +7,8 @@ post-verification, so nothing here is signed.
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import psycopg
 
 from ledgerproof.ledger import invariant
@@ -219,3 +221,109 @@ def test_unhandled_event_type_is_ignored(db_url) -> None:
     assert handle_event(event, db_url=db_url) == "ignored"
     assert txn_count(db_url) == 0
     assert invariant.check(db_url).ok
+
+
+def test_charge_and_payment_intent_pair_posts_exactly_once(db_url) -> None:
+    # A normal PaymentIntents payment emits BOTH charge.succeeded and
+    # payment_intent.succeeded for ONE money movement, keyed by different
+    # object ids (ch_... vs pi_...) — the demonstrated double-count. The
+    # dispatch table handles only charge.succeeded; the PI event is 'ignored'.
+    charge = charge_succeeded_event(
+        event_id="evt_pair_ch_1", charge_id="ch_1", amount=1000, fee=59
+    )
+    pi = wrap(
+        "evt_pair_pi_1",
+        "payment_intent.succeeded",
+        {
+            "id": "pi_1",
+            "object": "payment_intent",
+            "amount": 1000,
+            "amount_received": 1000,
+            "currency": "usd",
+            # Real PI payloads carry latest_charge as a STRING id, unexpanded.
+            "latest_charge": "ch_1",
+        },
+    )
+    assert handle_event(charge, db_url=db_url) == "posted"
+    assert handle_event(pi, db_url=db_url) == "ignored"
+    assert txn_count(db_url) == 1
+    b = balances(db_url)
+    assert b["revenue"] == 1000  # gross once, not 2000
+    assert b["stripe_balance"] == 941
+    assert b["processing_fees"] == 59
+    assert invariant.check(db_url).ok
+    assert event_status(db_url, "evt_pair_pi_1") == "no_money_moved"
+
+
+def charge_refunded_event(
+    event_id: str, refunds_data: list[dict], amount_refunded: int
+) -> dict:
+    return wrap(
+        event_id,
+        "charge.refunded",
+        {
+            "id": "ch_multi_refund",
+            "object": "charge",
+            "amount": 10000,
+            "amount_refunded": amount_refunded,
+            "refunded": amount_refunded >= 10000,
+            "currency": "usd",
+            # Stripe lists refunds newest-first: data[0] is THIS event's refund.
+            "refunds": {"object": "list", "data": refunds_data, "has_more": False},
+        },
+    )
+
+
+def test_two_partial_refunds_post_two_transactions(db_url) -> None:
+    re_1 = {"id": "re_1", "object": "refund", "amount": 5000, "currency": "usd"}
+    re_2 = {"id": "re_2", "object": "refund", "amount": 3000, "currency": "usd"}
+    first = charge_refunded_event("evt_re_multi_1", [re_1], amount_refunded=5000)
+    second = charge_refunded_event("evt_re_multi_2", [re_2, re_1], amount_refunded=8000)
+
+    assert handle_event(first, db_url=db_url) == "posted"
+    # Keyed by refund id, the second partial refund is a NEW money movement,
+    # not a dedupe collision on (charge.refunded, ch_multi_refund).
+    assert handle_event(second, db_url=db_url) == "posted"
+    assert txn_count(db_url) == 2
+    b = balances(db_url)
+    assert b["stripe_balance"] == -8000
+    assert b["refunds_contra"] == 8000
+    assert invariant.check(db_url).ok
+
+    # Replaying the same refund event is still a duplicate and moves nothing.
+    before = balances(db_url)
+    assert handle_event(second, db_url=db_url) == "duplicate"
+    assert balances(db_url) == before
+    assert txn_count(db_url) == 2
+    assert invariant.check(db_url).ok
+
+
+def test_task_retries_then_marks_failed_and_reraises(db_url, monkeypatch) -> None:
+    # Finding 3: a task exception must not be acked into the void. Eager
+    # .apply() exercises the real retry loop (Celery re-applies the task's
+    # signature synchronously, ignoring countdown) with handle_event stubbed
+    # to fail like a down database.
+    from ledgerproof.worker import tasks as tasks_mod
+
+    attempts: list[int] = []
+
+    def always_down(event: dict, *, db_url: str, client=None) -> str:
+        attempts.append(1)
+        raise ConnectionError("database unreachable")
+
+    monkeypatch.setattr(tasks_mod.handlers, "handle_event", always_down)
+    monkeypatch.setattr(
+        tasks_mod,
+        "get_settings",
+        lambda: SimpleNamespace(app_database_url=db_url, stripe_secret_key=""),
+    )
+
+    event = wrap(
+        "evt_retry_001", "charge.succeeded", {"id": "ch_retry", "object": "charge"}
+    )
+    result = tasks_mod.process_event.apply(args=(event,))
+
+    assert result.failed()
+    assert isinstance(result.result, ConnectionError)
+    assert len(attempts) == 6  # the first attempt + max_retries=5 retries
+    assert event_status(db_url, "evt_retry_001") == "failed"
