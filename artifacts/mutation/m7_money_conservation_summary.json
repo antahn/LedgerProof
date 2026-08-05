@@ -1,0 +1,35 @@
+{
+  "argv": [
+    "C:\\Users\\Anthony\\LedgerProof\\harness\\runner.py",
+    "--seed",
+    "7",
+    "--per-combo",
+    "1",
+    "--faults",
+    "NONE",
+    "--kinds",
+    "charge_succeeded",
+    "--port",
+    "8100",
+    "--out",
+    "artifacts/mutation/m7_money_conservation.jsonl"
+  ],
+  "started_at": "2026-08-05T08:14:57.280832+00:00",
+  "finished_at": "2026-08-05T08:15:05.074894+00:00",
+  "wall_clock_s": 7.79,
+  "artifact": "artifacts\\mutation\\m7_money_conservation.jsonl",
+  "scenarios_generated": 1,
+  "scenarios_run": 1,
+  "scenarios_with_breaks": 1,
+  "scenarios_errored": 0,
+  "counts_by_fault": {
+    "NONE": 1
+  },
+  "breaks_by_kind": {
+    "INVARIANT_VIOLATION": 1,
+    "LEDGER_DIFF_MISMATCH": 1
+  },
+  "kill_scenarios": 0,
+  "kills_with_task_in_flight": 0,
+  "skipped_combos": []
+}

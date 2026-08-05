@@ -1,0 +1,34 @@
+{
+  "argv": [
+    "C:\\Users\\Anthony\\LedgerProof\\harness\\runner.py",
+    "--seed",
+    "7",
+    "--per-combo",
+    "1",
+    "--faults",
+    "DUPLICATE,CONCURRENT_DUPLICATE,NONE",
+    "--kinds",
+    "charge_succeeded",
+    "--port",
+    "8100",
+    "--out",
+    "artifacts/mutation/m5a_probe_pkey_only.jsonl"
+  ],
+  "started_at": "2026-08-05T08:13:10.755080+00:00",
+  "finished_at": "2026-08-05T08:13:19.805329+00:00",
+  "wall_clock_s": 9.05,
+  "artifact": "artifacts\\mutation\\m5a_probe_pkey_only.jsonl",
+  "scenarios_generated": 3,
+  "scenarios_run": 3,
+  "scenarios_with_breaks": 0,
+  "scenarios_errored": 0,
+  "counts_by_fault": {
+    "CONCURRENT_DUPLICATE": 1,
+    "DUPLICATE": 1,
+    "NONE": 1
+  },
+  "breaks_by_kind": {},
+  "kill_scenarios": 0,
+  "kills_with_task_in_flight": 0,
+  "skipped_combos": []
+}

@@ -1,0 +1,37 @@
+{
+  "argv": [
+    "C:\\Users\\Anthony\\LedgerProof\\harness\\runner.py",
+    "--seed",
+    "7",
+    "--per-combo",
+    "4",
+    "--faults",
+    "PARTIAL_WRITE,NONE",
+    "--kinds",
+    "charge_succeeded,charge_refunded,dispute_created,payout_paid",
+    "--port",
+    "8100",
+    "--out",
+    "artifacts/mutation/m8_h1_regression.jsonl"
+  ],
+  "started_at": "2026-08-05T08:15:31.347324+00:00",
+  "finished_at": "2026-08-05T08:17:35.097355+00:00",
+  "wall_clock_s": 123.75,
+  "artifact": "artifacts\\mutation\\m8_h1_regression.jsonl",
+  "scenarios_generated": 32,
+  "scenarios_run": 32,
+  "scenarios_with_breaks": 5,
+  "scenarios_errored": 0,
+  "counts_by_fault": {
+    "NONE": 16,
+    "PARTIAL_WRITE": 16
+  },
+  "breaks_by_kind": {
+    "LEDGER_DIFF_MISMATCH": 4,
+    "LOST_EVENT": 3,
+    "NOT_QUIESCENT": 4
+  },
+  "kill_scenarios": 16,
+  "kills_with_task_in_flight": 4,
+  "skipped_combos": []
+}

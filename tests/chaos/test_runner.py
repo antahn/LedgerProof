@@ -192,6 +192,32 @@ def _plan_for(scenario: Scenario) -> FaultPlan:
     return plan(scenario.fault, scenario.fixtures, "whsec_" + "t" * 32, params=scenario.params)
 
 
+def test_signature_fault_refused_by_the_wrong_layer_is_a_break() -> None:
+    # The blind spot a mutation study found: with HMAC verification entirely
+    # deleted, TRUNCATE_BODY still read green, because half a JSON body is
+    # unparseable and ingest answered 400 from json.loads. A rejection now has
+    # to come from the layer the fault is actually attacking.
+    (scenario,) = generate(seed=1, faults=(Fault.TRUNCATE_BODY,), kinds=("charge_succeeded",))
+    fault_plan = _plan_for(scenario)
+    (delivery,) = fault_plan.deliveries
+    assert delivery.expect_rejection_reason == "invalid signature"
+
+    refused_by_signature = Observation(
+        ledger_diff={}, invariant_after=True, posted=(), transactions=0, quiescent=True
+    )
+    assert detect_breaks(fault_plan, refused_by_signature) == []
+
+    parser_refusal = (
+        f"{delivery.event_id}: expected refusal by 'invalid signature', "
+        'got HTTP 400 \'{"error":"invalid JSON body"}\''
+    )
+    refused_by_json_parser = dataclasses.replace(
+        refused_by_signature, wrong_rejection_reason=(parser_refusal,)
+    )
+    kinds = [b["kind"] for b in detect_breaks(fault_plan, refused_by_json_parser)]
+    assert kinds == ["WRONG_REJECTION_REASON"]
+
+
 def test_detect_breaks_cannot_see_the_label() -> None:
     (scenario,) = generate(seed=1, faults=(Fault.NONE,), kinds=("charge_succeeded",))
     fault_plan = _plan_for(scenario)

@@ -1,0 +1,408 @@
+{
+  "study": "LedgerProof chaos-harness mutation study",
+  "date_utc": "2026-08-05",
+  "baseline_commit": "bf8460e",
+  "what_this_does_and_does_not_prove": "What this proves: the chaos harness's zero-break sweeps are informative, not vacuous - seven of eight deliberately planted product bugs turned the harness red, and the one that did not (M4) stayed green because a deeper layer genuinely held the ledger correct, not because no detector was looking. What it does NOT prove: that the harness catches every possible bug (M3 exposed one concrete blind spot - TRUNCATE_BODY cannot detect disabled signature verification, because the JSON parser rejects the half-body first), that any single fault is sufficient on its own, or anything at all about code paths these eight mutations never touched.",
+  "method": "One mutation at a time, applied with an editor to a clean tree, exercised with the harness over only the faults that mutation should provoke (plus NONE as a control), then reverted with `git checkout -- <files>` and re-verified clean before the next one. No mutation was left in the tree; nothing was committed or stashed.",
+  "runner_command_shape": "uv run python -m harness.runner --seed 7 --per-combo <N> --faults <F1,F2,...> --kinds <K1,K2,...> --port 8100 --out artifacts/mutation/<id>.jsonl",
+  "artifact_location_note": "Every run in this study was written to artifacts/mutation/ rather than the default artifacts/chaos_<UTC>.jsonl, so output produced by deliberately broken code is never mistaken for a result from the shipped system.",
+  "controls": {
+    "pre_flight_clean_head": {
+      "artifact": "artifacts/chaos_20260805T080818Z.jsonl",
+      "scenarios_run": 1,
+      "scenarios_with_breaks": 0,
+      "note": "Run on clean HEAD before any mutation was applied."
+    },
+    "post_restore_clean_head": {
+      "artifact": "artifacts/mutation/m0_post_restore_control.jsonl",
+      "scenarios_run": 18,
+      "scenarios_with_breaks": 0,
+      "note": "Run after every mutation was reverted, over 9 faults x 2 money kinds, covering every file this study touched except ingest/app.py (restored byte-identically to HEAD). Zero breaks: the tree really is back."
+    }
+  },
+  "totals": {
+    "mutations": 8,
+    "predicted_caught": 7,
+    "actually_caught": 7,
+    "predictions_held": 8,
+    "scenarios_run": 51,
+    "scenarios_with_breaks": 15
+  },
+  "mutations": [
+    {
+      "id": "M1",
+      "description": "v0 signatures accepted: verify() collects a v0 item into the same candidate list as v1, so a v0-only header with a correct HMAC verifies.",
+      "files_touched": [
+        "src/ledgerproof/stripe_io/signature.py"
+      ],
+      "faults_run": [
+        "DOWNGRADE_SCHEME",
+        "NONE"
+      ],
+      "kinds": [
+        "charge_succeeded"
+      ],
+      "scenarios_run": 2,
+      "scenarios_with_breaks": 1,
+      "break_kinds": [
+        "ACCEPTED_BAD_DELIVERY",
+        "DOUBLE_POST",
+        "LEDGER_DIFF_MISMATCH"
+      ],
+      "breaks_by_kind": {
+        "ACCEPTED_BAD_DELIVERY": 1,
+        "DOUBLE_POST": 1,
+        "LEDGER_DIFF_MISMATCH": 1
+      },
+      "predicted_caught": true,
+      "actually_caught": true,
+      "prediction_held": true,
+      "artifact": "artifacts/mutation/m1_downgrade.jsonl",
+      "summary_artifact": "artifacts/mutation/m1_downgrade_summary.json",
+      "argv": [
+        "C:\\Users\\Anthony\\LedgerProof\\harness\\runner.py",
+        "--seed",
+        "7",
+        "--per-combo",
+        "1",
+        "--faults",
+        "DOWNGRADE_SCHEME,NONE",
+        "--kinds",
+        "charge_succeeded",
+        "--port",
+        "8100",
+        "--out",
+        "artifacts/mutation/m1_downgrade.jsonl"
+      ],
+      "notes": "Caught. The DOWNGRADE_SCHEME delivery, which must be refused, was answered 200 and posted a ledger transaction: ACCEPTED_BAD_DELIVERY (both halves of the detail fired - ingest answered 2xx AND it produced a transaction), LEDGER_DIFF_MISMATCH, DOUBLE_POST. The NONE control stayed green, so the signal is the mutation, not noise."
+    },
+    {
+      "id": "M2",
+      "description": "Timestamp tolerance ignored: verify() no longer compares abs(now - t) against the 300s tolerance, so an arbitrarily old but correctly signed replay is accepted.",
+      "files_touched": [
+        "src/ledgerproof/stripe_io/signature.py"
+      ],
+      "faults_run": [
+        "STALE_TIMESTAMP",
+        "NONE"
+      ],
+      "kinds": [
+        "charge_succeeded"
+      ],
+      "scenarios_run": 2,
+      "scenarios_with_breaks": 1,
+      "break_kinds": [
+        "ACCEPTED_BAD_DELIVERY",
+        "DOUBLE_POST",
+        "LEDGER_DIFF_MISMATCH"
+      ],
+      "breaks_by_kind": {
+        "ACCEPTED_BAD_DELIVERY": 1,
+        "DOUBLE_POST": 1,
+        "LEDGER_DIFF_MISMATCH": 1
+      },
+      "predicted_caught": true,
+      "actually_caught": true,
+      "prediction_held": true,
+      "artifact": "artifacts/mutation/m2_stale_ts.jsonl",
+      "summary_artifact": "artifacts/mutation/m2_stale_ts_summary.json",
+      "argv": [
+        "C:\\Users\\Anthony\\LedgerProof\\harness\\runner.py",
+        "--seed",
+        "7",
+        "--per-combo",
+        "1",
+        "--faults",
+        "STALE_TIMESTAMP,NONE",
+        "--kinds",
+        "charge_succeeded",
+        "--port",
+        "8100",
+        "--out",
+        "artifacts/mutation/m2_stale_ts.jsonl"
+      ],
+      "notes": "Caught. A delivery signed 600s in the past was accepted and posted: ACCEPTED_BAD_DELIVERY, LEDGER_DIFF_MISMATCH, DOUBLE_POST. NONE control green."
+    },
+    {
+      "id": "M3",
+      "description": "Verification disabled: verify() returns at the top of the function, the classic commented-out signature check.",
+      "files_touched": [
+        "src/ledgerproof/stripe_io/signature.py"
+      ],
+      "faults_run": [
+        "TAMPER_BODY",
+        "TRUNCATE_BODY",
+        "STALE_TIMESTAMP",
+        "DOWNGRADE_SCHEME",
+        "NONE"
+      ],
+      "kinds": [
+        "charge_succeeded"
+      ],
+      "scenarios_run": 5,
+      "scenarios_with_breaks": 3,
+      "break_kinds": [
+        "ACCEPTED_BAD_DELIVERY",
+        "DOUBLE_POST",
+        "LEDGER_DIFF_MISMATCH"
+      ],
+      "breaks_by_kind": {
+        "ACCEPTED_BAD_DELIVERY": 3,
+        "DOUBLE_POST": 3,
+        "LEDGER_DIFF_MISMATCH": 3
+      },
+      "predicted_caught": true,
+      "actually_caught": true,
+      "prediction_held": true,
+      "artifact": "artifacts/mutation/m3_verify_off.jsonl",
+      "summary_artifact": "artifacts/mutation/m3_verify_off_summary.json",
+      "argv": [
+        "C:\\Users\\Anthony\\LedgerProof\\harness\\runner.py",
+        "--seed",
+        "7",
+        "--per-combo",
+        "1",
+        "--faults",
+        "TAMPER_BODY,TRUNCATE_BODY,STALE_TIMESTAMP,DOWNGRADE_SCHEME,NONE",
+        "--kinds",
+        "charge_succeeded",
+        "--port",
+        "8100",
+        "--out",
+        "artifacts/mutation/m3_verify_off.jsonl"
+      ],
+      "notes": "Caught by 3 of the 4 signature-attacking faults (TAMPER_BODY, STALE_TIMESTAMP, DOWNGRADE_SCHEME), each with ACCEPTED_BAD_DELIVERY + LEDGER_DIFF_MISMATCH + DOUBLE_POST. BLIND SPOT WORTH RECORDING: TRUNCATE_BODY did NOT break. It cuts the body in half, which makes the JSON unparseable, so ingest still answers 400 - from json.loads in app.py, not from verify(). With verification entirely disabled that fault still reads green, so TRUNCATE_BODY on its own proves the JSON parser fails closed and proves nothing about the HMAC. Confirmed in the artifact: the TRUNCATE_BODY delivery's status_code is 400 with 0 transactions."
+    },
+    {
+      "id": "M4",
+      "description": "Ingest fast-path dedupe removed, database constraints intact: Deduper.check_and_record swallows the UniqueViolation and reports every event as new, so every redelivery is enqueued and reaches the worker.",
+      "files_touched": [
+        "src/ledgerproof/ingest/dedupe.py"
+      ],
+      "faults_run": [
+        "DUPLICATE",
+        "DUPLICATE_OBJECT",
+        "CONCURRENT_DUPLICATE",
+        "NONE"
+      ],
+      "kinds": [
+        "charge_succeeded"
+      ],
+      "scenarios_run": 4,
+      "scenarios_with_breaks": 0,
+      "break_kinds": [],
+      "breaks_by_kind": {},
+      "predicted_caught": false,
+      "actually_caught": false,
+      "prediction_held": true,
+      "artifact": "artifacts/mutation/m4_ingest_dedupe_off.jsonl",
+      "summary_artifact": "artifacts/mutation/m4_ingest_dedupe_off_summary.json",
+      "argv": [
+        "C:\\Users\\Anthony\\LedgerProof\\harness\\runner.py",
+        "--seed",
+        "7",
+        "--per-combo",
+        "1",
+        "--faults",
+        "DUPLICATE,DUPLICATE_OBJECT,CONCURRENT_DUPLICATE,NONE",
+        "--kinds",
+        "charge_succeeded",
+        "--port",
+        "8100",
+        "--out",
+        "artifacts/mutation/m4_ingest_dedupe_off.jsonl"
+      ],
+      "notes": "NOT caught, exactly as predicted, and the interesting result is WHY. The mutation was verifiably live: the worker log for this run shows 13 tasks received for 4 scenarios (DUPLICATE n=2 -> 2, DUPLICATE_OBJECT -> 2, CONCURRENT_DUPLICATE n=8 -> 8, NONE -> 1), i.e. every redelivery that the fast path normally absorbs went all the way to the worker. The ledger still recorded exactly ONE transaction per scenario and every balance delta matched its expectation. The transactions table's own keys did the work: transactions_pkey (uuid5 of event.id) for the same-event replays and dedupe_object (event_type, stripe_object_id) for DUPLICATE_OBJECT's second envelope. This is a defense-in-depth control, so a green result is a pass for the design and NOT a gap in the harness: with the authoritative layer intact there is no wrong ledger state for any detector to see."
+    },
+    {
+      "id": "M5",
+      "description": "Dedupe removed at BOTH layers: M4's ingest change, plus the dedupe_event and dedupe_object UNIQUE constraints dropped from the transactions table, plus mapping.py minting a random uuid4 transaction id instead of uuid5(event.id) - the last edit is what makes the double post reachable at all.",
+      "files_touched": [
+        "src/ledgerproof/ingest/dedupe.py",
+        "migrations/001_ledger.sql",
+        "src/ledgerproof/stripe_io/mapping.py"
+      ],
+      "faults_run": [
+        "DUPLICATE",
+        "CONCURRENT_DUPLICATE",
+        "NONE"
+      ],
+      "kinds": [
+        "charge_succeeded"
+      ],
+      "scenarios_run": 3,
+      "scenarios_with_breaks": 2,
+      "break_kinds": [
+        "DOUBLE_POST",
+        "LEDGER_DIFF_MISMATCH"
+      ],
+      "breaks_by_kind": {
+        "DOUBLE_POST": 2,
+        "LEDGER_DIFF_MISMATCH": 2
+      },
+      "predicted_caught": true,
+      "actually_caught": true,
+      "prediction_held": true,
+      "artifact": "artifacts/mutation/m5_dedupe_both_layers.jsonl",
+      "summary_artifact": "artifacts/mutation/m5_dedupe_both_layers_summary.json",
+      "argv": [
+        "C:\\Users\\Anthony\\LedgerProof\\harness\\runner.py",
+        "--seed",
+        "7",
+        "--per-combo",
+        "1",
+        "--faults",
+        "DUPLICATE,CONCURRENT_DUPLICATE,NONE",
+        "--kinds",
+        "charge_succeeded",
+        "--port",
+        "8100",
+        "--out",
+        "artifacts/mutation/m5_dedupe_both_layers.jsonl"
+      ],
+      "notes": "Caught: DOUBLE_POST + LEDGER_DIFF_MISMATCH on both DUPLICATE (2 transactions for 1 expected posting) and CONCURRENT_DUPLICATE (8 transactions for 1), with the observed balance delta exactly n times the expected one. NONE control green. PRE-STEP WORTH REPORTING: the same run with only the ingest dedupe removed and both UNIQUE constraints dropped - but the deterministic uuid5 transaction id left alone - produced ZERO breaks (artifacts/mutation/m5a_probe_pkey_only.jsonl; the harness database was checked directly and showed transactions_pkey as the only remaining unique index). The deterministic primary key is a third, independent dedupe layer: you have to defeat all three before a double post is even expressible."
+    },
+    {
+      "id": "M6",
+      "description": "Order dependence: the charge.refunded handler refuses to post unless a transaction for its charge already exists, the state-machine assumption Stripe's docs warn about.",
+      "files_touched": [
+        "src/ledgerproof/worker/handlers.py"
+      ],
+      "faults_run": [
+        "REORDER",
+        "NONE"
+      ],
+      "kinds": [
+        "charge_refunded"
+      ],
+      "scenarios_run": 2,
+      "scenarios_with_breaks": 2,
+      "break_kinds": [
+        "LEDGER_DIFF_MISMATCH",
+        "LOST_EVENT"
+      ],
+      "breaks_by_kind": {
+        "LEDGER_DIFF_MISMATCH": 2,
+        "LOST_EVENT": 3
+      },
+      "predicted_caught": true,
+      "actually_caught": true,
+      "prediction_held": true,
+      "artifact": "artifacts/mutation/m6_order_dependence.jsonl",
+      "summary_artifact": "artifacts/mutation/m6_order_dependence_summary.json",
+      "argv": [
+        "C:\\Users\\Anthony\\LedgerProof\\harness\\runner.py",
+        "--seed",
+        "7",
+        "--per-combo",
+        "1",
+        "--faults",
+        "REORDER,NONE",
+        "--kinds",
+        "charge_refunded",
+        "--port",
+        "8100",
+        "--out",
+        "artifacts/mutation/m6_order_dependence.jsonl"
+      ],
+      "notes": "Caught: LOST_EVENT + LEDGER_DIFF_MISMATCH on the REORDER scenario (both of its two refunds vanished, so two LOST_EVENT breaks) . HONEST NUANCE: the NONE control ALSO broke (1 LOST_EVENT), because with --kinds charge_refunded no charge.succeeded is ever delivered, so under this mutation no refund can ever post regardless of arrival order. The harness detected the bug, but this particular injection is blunter than 'order dependence' - it is detectable with no fault injected at all, and REORDER's specific contribution here is only that it doubles the number of lost events."
+    },
+    {
+      "id": "M7",
+      "description": "Money conservation broken with the database's guarantee removed: the deferred entries_balanced CONSTRAINT TRIGGER is dropped from the migration, and charge.succeeded debits stripe_balance the FULL gross instead of gross - fee, so the transaction no longer balances.",
+      "files_touched": [
+        "migrations/001_ledger.sql",
+        "src/ledgerproof/stripe_io/mapping.py"
+      ],
+      "faults_run": [
+        "NONE"
+      ],
+      "kinds": [
+        "charge_succeeded"
+      ],
+      "scenarios_run": 1,
+      "scenarios_with_breaks": 1,
+      "break_kinds": [
+        "INVARIANT_VIOLATION",
+        "LEDGER_DIFF_MISMATCH"
+      ],
+      "breaks_by_kind": {
+        "INVARIANT_VIOLATION": 1,
+        "LEDGER_DIFF_MISMATCH": 1
+      },
+      "predicted_caught": true,
+      "actually_caught": true,
+      "prediction_held": true,
+      "artifact": "artifacts/mutation/m7_money_conservation.jsonl",
+      "summary_artifact": "artifacts/mutation/m7_money_conservation_summary.json",
+      "argv": [
+        "C:\\Users\\Anthony\\LedgerProof\\harness\\runner.py",
+        "--seed",
+        "7",
+        "--per-combo",
+        "1",
+        "--faults",
+        "NONE",
+        "--kinds",
+        "charge_succeeded",
+        "--port",
+        "8100",
+        "--out",
+        "artifacts/mutation/m7_money_conservation.jsonl"
+      ],
+      "notes": "Caught, on the NONE baseline with no fault injected at all: INVARIANT_VIOLATION (debit-normal 43808 vs credit-normal 42545, difference 1263 - exactly the processing fee, money created from nothing) plus LEDGER_DIFF_MISMATCH (stripe_balance +42545 where +41282 was due). The runner also recorded ledger_reset=true, its documented containment step. This is the project's thesis under test: with the database's enforcement removed, the harness's independent expectation still caught the hole."
+    },
+    {
+      "id": "M8",
+      "description": "H1 regression: ingest's outbox recovery only re-enqueues rows whose status is 'received', so a row left at 'queued' by an unclean worker death is answered 200 duplicate and never reprocessed - the real bug the harness found.",
+      "files_touched": [
+        "src/ledgerproof/ingest/app.py"
+      ],
+      "faults_run": [
+        "PARTIAL_WRITE",
+        "NONE"
+      ],
+      "kinds": [
+        "charge_succeeded",
+        "charge_refunded",
+        "dispute_created",
+        "payout_paid"
+      ],
+      "scenarios_run": 32,
+      "scenarios_with_breaks": 5,
+      "break_kinds": [
+        "LEDGER_DIFF_MISMATCH",
+        "LOST_EVENT",
+        "NOT_QUIESCENT"
+      ],
+      "breaks_by_kind": {
+        "LEDGER_DIFF_MISMATCH": 4,
+        "LOST_EVENT": 3,
+        "NOT_QUIESCENT": 4
+      },
+      "predicted_caught": true,
+      "actually_caught": true,
+      "prediction_held": true,
+      "artifact": "artifacts/mutation/m8_h1_regression.jsonl",
+      "summary_artifact": "artifacts/mutation/m8_h1_regression_summary.json",
+      "argv": [
+        "C:\\Users\\Anthony\\LedgerProof\\harness\\runner.py",
+        "--seed",
+        "7",
+        "--per-combo",
+        "4",
+        "--faults",
+        "PARTIAL_WRITE,NONE",
+        "--kinds",
+        "charge_succeeded,charge_refunded,dispute_created,payout_paid",
+        "--port",
+        "8100",
+        "--out",
+        "artifacts/mutation/m8_h1_regression.jsonl"
+      ],
+      "notes": "Caught, and the coverage number is the point. 16 PARTIAL_WRITE scenarios ran; the SIGKILL landed while a task was in flight in 4 of them (kills_with_task_in_flight=4). ALL FOUR in-flight kills broke, and none of the 12 kills that landed outside a write window did: partial_write-charge_succeeded-0001, -dispute_created-0001 and -dispute_created-0003 each produced LEDGER_DIFF_MISMATCH + LOST_EVENT + NOT_QUIESCENT, and -charge_refunded-0001 produced NOT_QUIESCENT alone (there the kill landed after COMMIT but before the event-log row was advanced, so the money was right and only the outbox row was stranded). All 16 NONE controls stayed green. A FIFTH scenario, partial_write-dispute_created-0002, also shows a LEDGER_DIFF_MISMATCH, and it is worth understanding rather than counting: its observed diff carries an extra +19872 revenue / +606 processing_fees / +19266 stripe_balance, which is exactly the event stranded ~60s earlier in partial_write-charge_succeeded-0001. Under this regression ingest refuses to recover a 'queued' row, so the only thing that eventually rescues the event is the Redis broker's visibility_timeout (60s, itself an H1-era mitigation in worker/tasks.py) redelivering the unacked message - and that late commit lands inside an unrelated scenario's before/after window. So the regression's real signature is: the event is not lost forever, it is stranded past the 15s quiescence budget and then reappears in someone else's measurement.",
+      "kill_scenarios": 16,
+      "kills_with_task_in_flight": 4
+    }
+  ]
+}

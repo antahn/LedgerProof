@@ -11,8 +11,14 @@ Stripe integration — it is the **adversary**: a chaos proxy that deliberately
 duplicates, reorders, delays, drops, tampers with, and 500s every webhook
 delivery to find the bugs the happy path hides.
 
-> Findings count: **the harness has not run yet.** [FINDINGS.md](FINDINGS.md)
-> records only measured results; every number in this README traces to a run in
+> **What the adversary found:** across 189 fault-injection scenarios, one
+> critical bug — an unclean worker death stranded a payment where every
+> recovery mechanism believed someone else had handled it, losing the money
+> outright in 3 of 12 kill scenarios while the conservation invariant stayed
+> green. Plus 5 more from a pre-gate review and 1 from the very first live
+> webhook. The harness itself was wrong three times first, and those
+> corrections are written down too. Full repro, diagnosis, and fix for each:
+> [FINDINGS.md](FINDINGS.md). Every number here traces to a run in
 > `artifacts/`.
 
 ## Architecture

@@ -40,6 +40,12 @@ from dataclasses import dataclass, field
 from harness.events import EventFixture, serialize
 from ledgerproof.stripe_io.signature import DEFAULT_TOLERANCE_SECONDS, sign
 
+# The error body ingest returns when HMAC verification refuses a delivery, as
+# distinct from the body-size cap, the JSON parser, or the envelope check. A
+# signature fault that is refused by any OTHER layer has proved nothing about
+# the signature, so the expected refuser is named and checked.
+INVALID_SIGNATURE = "invalid signature"
+
 # DELAY compresses a real >300s network delay into a back-dated signature: the
 # delivery is already this far past the tolerance window when the proxy sends
 # it, so the scenario runs in seconds instead of stalling a suite for five
@@ -69,7 +75,10 @@ ALL_FAULTS: tuple[Fault, ...] = tuple(f for f in Fault if f is not Fault.NONE)
 
 @dataclass(frozen=True)
 class Delivery:
-    """One HTTP POST the proxy will make, byte-for-byte."""
+    """One HTTP POST the proxy will make, byte-for-byte.
+
+    See INVALID_SIGNATURE for why a rejection carries its expected reason.
+    """
 
     body: bytes
     sig_header: str
@@ -77,6 +86,12 @@ class Delivery:
     delay_before_s: float = 0.0
     slow_loris_s: float = 0.0
     expect_rejected: bool = False
+    # WHICH check must refuse it, matched against ingest's error body. A
+    # rejection alone is not proof: with HMAC verification entirely deleted,
+    # TRUNCATE_BODY still read green because half a JSON body is unparseable,
+    # so the 400 came from json.loads and the fault proved nothing about the
+    # signature. Naming the expected refuser closes that hole.
+    expect_rejection_reason: str | None = None
 
 
 @dataclass(frozen=True)
@@ -196,6 +211,10 @@ def _rejected_plan(
                 sig_header=sig_header,
                 event_id=fixture.event_id,
                 expect_rejected=True,
+                # Every caller here attacks the signature, so the HMAC check —
+                # not the body-size cap, the JSON parser, or the envelope
+                # check — is the layer that must do the refusing.
+                expect_rejection_reason=INVALID_SIGNATURE,
             ),
         ),
         expectation=Expectation(

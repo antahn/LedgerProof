@@ -1,0 +1,40 @@
+{
+  "argv": [
+    "C:\\Users\\Anthony\\LedgerProof\\harness\\runner.py",
+    "--seed",
+    "7",
+    "--per-combo",
+    "1",
+    "--faults",
+    "NONE,DUPLICATE,DUPLICATE_OBJECT,CONCURRENT_DUPLICATE,REORDER,TAMPER_BODY,TRUNCATE_BODY,STALE_TIMESTAMP,DOWNGRADE_SCHEME",
+    "--kinds",
+    "charge_succeeded,charge_refunded",
+    "--port",
+    "8100",
+    "--out",
+    "artifacts/mutation/m0_post_restore_control.jsonl"
+  ],
+  "started_at": "2026-08-05T08:18:33.259539+00:00",
+  "finished_at": "2026-08-05T08:18:48.821680+00:00",
+  "wall_clock_s": 15.56,
+  "artifact": "artifacts\\mutation\\m0_post_restore_control.jsonl",
+  "scenarios_generated": 18,
+  "scenarios_run": 18,
+  "scenarios_with_breaks": 0,
+  "scenarios_errored": 0,
+  "counts_by_fault": {
+    "CONCURRENT_DUPLICATE": 2,
+    "DOWNGRADE_SCHEME": 2,
+    "DUPLICATE": 2,
+    "DUPLICATE_OBJECT": 2,
+    "NONE": 2,
+    "REORDER": 2,
+    "STALE_TIMESTAMP": 2,
+    "TAMPER_BODY": 2,
+    "TRUNCATE_BODY": 2
+  },
+  "breaks_by_kind": {},
+  "kill_scenarios": 0,
+  "kills_with_task_in_flight": 0,
+  "skipped_combos": []
+}

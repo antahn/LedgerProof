@@ -1,0 +1,37 @@
+{
+  "argv": [
+    "C:\\Users\\Anthony\\LedgerProof\\harness\\runner.py",
+    "--seed",
+    "7",
+    "--per-combo",
+    "1",
+    "--faults",
+    "DOWNGRADE_SCHEME,NONE",
+    "--kinds",
+    "charge_succeeded",
+    "--port",
+    "8100",
+    "--out",
+    "artifacts/mutation/m1_downgrade.jsonl"
+  ],
+  "started_at": "2026-08-05T08:10:35.298037+00:00",
+  "finished_at": "2026-08-05T08:10:43.605168+00:00",
+  "wall_clock_s": 8.31,
+  "artifact": "artifacts\\mutation\\m1_downgrade.jsonl",
+  "scenarios_generated": 2,
+  "scenarios_run": 2,
+  "scenarios_with_breaks": 1,
+  "scenarios_errored": 0,
+  "counts_by_fault": {
+    "DOWNGRADE_SCHEME": 1,
+    "NONE": 1
+  },
+  "breaks_by_kind": {
+    "ACCEPTED_BAD_DELIVERY": 1,
+    "DOUBLE_POST": 1,
+    "LEDGER_DIFF_MISMATCH": 1
+  },
+  "kill_scenarios": 0,
+  "kills_with_task_in_flight": 0,
+  "skipped_combos": []
+}

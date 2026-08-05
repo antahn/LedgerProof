@@ -68,6 +68,11 @@ DOUBLE_POST = "DOUBLE_POST"
 NOT_QUIESCENT = "NOT_QUIESCENT"
 RECONCILER_MISSED_DROP = "RECONCILER_MISSED_DROP"
 INGEST_UNRESPONSIVE = "INGEST_UNRESPONSIVE"
+# Refused by the wrong layer. Added after a mutation study showed TRUNCATE_BODY
+# reading green with HMAC verification entirely deleted: a truncated body is
+# unparseable JSON, so the 400 came from the parser and the fault proved
+# nothing about the signature.
+WRONG_REJECTION_REASON = "WRONG_REJECTION_REASON"
 
 
 @dataclass(frozen=True)
@@ -80,6 +85,7 @@ class Observation:
     transactions: int
     quiescent: bool
     accepted_rejected: tuple[str, ...] = ()
+    wrong_rejection_reason: tuple[str, ...] = ()
     recon_reported_break: bool = False
     ingest_responsive: bool | None = None  # None: not measured for this fault
 
@@ -125,6 +131,9 @@ def detect_breaks(fault_plan: FaultPlan, obs: Observation) -> list[dict[str, str
                 f"{event_id} should have been refused but " + " and ".join(bad[event_id]),
             )
         )
+
+    for detail in obs.wrong_rejection_reason:
+        breaks.append(_break(WRONG_REJECTION_REASON, detail))
 
     for event_id in sorted(exp.posted_event_ids - set(obs.posted)):
         breaks.append(
@@ -343,6 +352,20 @@ def run_scenario(
         )
     )
 
+    # Refused, but by the right layer? A signature attack that trips the JSON
+    # parser instead of the HMAC check is a green result proving nothing.
+    wrong_reason = tuple(
+        dict.fromkeys(
+            f"{delivery.event_id}: expected refusal by {delivery.expect_rejection_reason!r}, "
+            f"got HTTP {result.status_code} {result.body[:120]!r}"
+            for delivery, result in zip(fault_plan.deliveries, results[:planned], strict=False)
+            if delivery.expect_rejection_reason is not None
+            and result.status_code is not None
+            and 400 <= result.status_code < 500
+            and delivery.expect_rejection_reason not in result.body
+        )
+    )
+
     recon_record: dict | None = None
     recon_reported = False
     if exp.reconciler_should_report_break:
@@ -369,6 +392,7 @@ def run_scenario(
         transactions=len(rows),
         quiescent=quiescent,
         accepted_rejected=accepted_rejected,
+        wrong_rejection_reason=wrong_reason,
         recon_reported_break=recon_reported,
         ingest_responsive=probe.responsive if probe is not None else None,
     )
@@ -412,6 +436,7 @@ def run_scenario(
         "kinds": [fx.kind for fx in scenario.fixtures],
         "started_at": started_at.isoformat(),
         "accepted_rejected": list(accepted_rejected),
+        "wrong_rejection_reason": list(wrong_reason),
         "redelivered_after_kill": worker_restarted and fault_plan.redeliver_after_kill,
         "worker_restarted": worker_restarted,
         "killed_with_task_in_flight": killed_in_flight,
@@ -436,6 +461,7 @@ def observation_from_record(record: dict) -> Observation:
         transactions=int(record["actual"]["transactions"]),
         quiescent=bool(record["quiescent"]),
         accepted_rejected=tuple(record.get("accepted_rejected", ())),
+        wrong_rejection_reason=tuple(record.get("wrong_rejection_reason", ())),
         recon_reported_break=bool((record.get("recon") or {}).get("reported", False)),
         ingest_responsive=record.get("ingest_responsive"),
     )

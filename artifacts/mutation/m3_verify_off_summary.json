@@ -1,0 +1,40 @@
+{
+  "argv": [
+    "C:\\Users\\Anthony\\LedgerProof\\harness\\runner.py",
+    "--seed",
+    "7",
+    "--per-combo",
+    "1",
+    "--faults",
+    "TAMPER_BODY,TRUNCATE_BODY,STALE_TIMESTAMP,DOWNGRADE_SCHEME,NONE",
+    "--kinds",
+    "charge_succeeded",
+    "--port",
+    "8100",
+    "--out",
+    "artifacts/mutation/m3_verify_off.jsonl"
+  ],
+  "started_at": "2026-08-05T08:11:29.181720+00:00",
+  "finished_at": "2026-08-05T08:11:38.775242+00:00",
+  "wall_clock_s": 9.59,
+  "artifact": "artifacts\\mutation\\m3_verify_off.jsonl",
+  "scenarios_generated": 5,
+  "scenarios_run": 5,
+  "scenarios_with_breaks": 3,
+  "scenarios_errored": 0,
+  "counts_by_fault": {
+    "DOWNGRADE_SCHEME": 1,
+    "NONE": 1,
+    "STALE_TIMESTAMP": 1,
+    "TAMPER_BODY": 1,
+    "TRUNCATE_BODY": 1
+  },
+  "breaks_by_kind": {
+    "ACCEPTED_BAD_DELIVERY": 3,
+    "DOUBLE_POST": 3,
+    "LEDGER_DIFF_MISMATCH": 3
+  },
+  "kill_scenarios": 0,
+  "kills_with_task_in_flight": 0,
+  "skipped_combos": []
+}

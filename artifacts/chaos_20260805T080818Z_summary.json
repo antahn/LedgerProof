@@ -1,0 +1,30 @@
+{
+  "argv": [
+    "C:\\Users\\Anthony\\LedgerProof\\harness\\runner.py",
+    "--seed",
+    "7",
+    "--per-combo",
+    "1",
+    "--faults",
+    "NONE",
+    "--kinds",
+    "charge_succeeded",
+    "--port",
+    "8100"
+  ],
+  "started_at": "2026-08-05T08:08:18.650906+00:00",
+  "finished_at": "2026-08-05T08:08:26.851623+00:00",
+  "wall_clock_s": 8.2,
+  "artifact": "C:\\Users\\Anthony\\LedgerProof\\artifacts\\chaos_20260805T080818Z.jsonl",
+  "scenarios_generated": 1,
+  "scenarios_run": 1,
+  "scenarios_with_breaks": 0,
+  "scenarios_errored": 0,
+  "counts_by_fault": {
+    "NONE": 1
+  },
+  "breaks_by_kind": {},
+  "kill_scenarios": 0,
+  "kills_with_task_in_flight": 0,
+  "skipped_combos": []
+}

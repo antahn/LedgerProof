@@ -146,11 +146,158 @@ one lives precisely in the gap the test suite didn't cover.
   invariant 1100 == 1100. Regression tests cover both the refetch-and-post and
   the still-unsettled-raise paths.
 
-## Found by the chaos harness
+## Found by the chaos harness — 2026-08-05
 
-*(the harness has not run — Phase 2)*
+The harness delivers webhooks it signs itself, against its own database, Redis
+queue, and port, so a run is hermetic and repeatable. Every scenario carries a
+ground-truth `Expectation` derived from the same plan that drives the wire, and
+break detection is a pure function of *plan vs. observed ledger* — it is never
+passed the label, so a verdict cannot be contaminated by the answer key.
+
+**First sweep — 189 scenarios (14 faults × 5 event kinds × 3 repeats): 27 broke,
+3 of them with money missing outright.**
+Raw: [`artifacts/chaos_20260805T074627Z.jsonl`](artifacts/chaos_20260805T074627Z.jsonl).
+
+### H1 (critical) — An unclean worker death lost the payment
+
+- **Where:** `ingest/app.py` (outbox recovery) with `worker/tasks.py` (broker config)
+- **Repro:** `uv run python -m harness.runner --seed 7 --per-combo 3` on the
+  code at commit `ed36a1f`. The `PARTIAL_WRITE` fault SIGKILLs the worker
+  ~100 ms after delivery, then redelivers as Stripe would. Three of twelve kill
+  scenarios ended with an empty ledger where entries were due — e.g.
+  `partial_write-charge_succeeded-0001` expected
+  `{stripe_balance +26533, processing_fees +823, revenue +27356}` and observed
+  `{}`. As a unit test:
+  `tests/integration/test_ingest.py::test_redelivery_recovers_a_queued_row_whose_worker_died`.
+- **Diagnosis:** one word carrying more meaning than it had earned. A
+  `stripe_events` row moves to `queued` when the queue is *told* about an
+  event — never when the work *finishes*. The Phase-1 outbox fix (finding R2)
+  only re-enqueued rows still in `received`, so a worker that died between
+  "message enqueued" and "transaction committed" left the row parked at
+  `queued`, which ingest read as *done*. Stripe's redelivery — the one
+  mechanism built to heal exactly this — was answered `duplicate`, which tells
+  Stripe to stop retrying. Nothing else recovered it either: `acks_late`
+  promises redelivery only after the Redis broker's `visibility_timeout`, which
+  defaults to **one hour**. So the money was not merely late, it was
+  unreachable by every layer that could have saved it. Worth naming: the
+  money-conservation invariant stayed **green** throughout. Conservation says
+  the books are internally consistent, not that they match reality — a payment
+  that never posts destroys nothing, it just never arrives. Only the harness's
+  independent expectation of what *should* have posted could see it.
+- **Fix:** a redelivery now re-enqueues any **non-terminal** row (`received` or
+  `queued`) — neither proves the work was done, and the worker is idempotent
+  end-to-end, so a redundant enqueue costs one no-op. `visibility_timeout`
+  drops to 60 s so an unclean death self-heals without depending on Stripe at
+  all. `failed` stays terminal deliberately: it is the exhausted-retries
+  dead-letter the reconciler acts on, and auto-redriving it would erase the
+  evidence instead of fixing anything.
+- **After:** the identical sweep reports **0 of 189**
+  ([`artifacts/chaos_20260805T082513Z.jsonl`](artifacts/chaos_20260805T082513Z.jsonl)),
+  and wall-clock fell 565 s → 161 s, because those 15-second timeouts *were*
+  the stranded rows.
+
+### Three harness bugs, fixed before any number was trusted
+
+The adversary was wrong before the product was. None of these are product
+defects; all three would have made the measurements lie, in both directions.
+
+- **The kill was too slow to ever land mid-write.** `kill_worker` took
+  **922 ms**, because `uv run` remains a *parent* of the real Python process
+  and reaching the child meant a `taskkill /T` tree walk — against a pipeline
+  that commits in ~150 ms. Across 127 kills, **zero** landed in flight, so
+  `PARTIAL_WRITE` was quietly proving "crash-then-redeliver is safe" while
+  appearing to prove "no half-written transaction." Launching the worker as
+  the venv interpreter directly makes `Popen.kill()` reach the transaction
+  holder in **~0–16 ms**; the runner now records `kills_with_task_in_flight`
+  per run (6 of 12 in the final sweep) so no run can over-claim atomicity.
+  **H1 was only findable after this fix.** A slow adversary is a quiet one.
+- **Quiescence was global, not per scenario.** One stranded row made *every
+  later scenario* report `NOT_QUIESCENT`: 24 of the first sweep's 27 breaks
+  were one bug echoing, drowning what those scenarios actually did. Now scoped
+  to each scenario's own event ids.
+- **`TRUNCATE_BODY` proved nothing about signatures.** Found by the mutation
+  study below: with HMAC verification *entirely deleted*, that fault still read
+  green, because half a JSON body is unparseable and ingest answered 400 from
+  `json.loads` — the right status code from the wrong layer. Rejection faults
+  now name the layer that must refuse them, and a refusal from anywhere else
+  is a break (`WRONG_REJECTION_REASON`).
+
+### Does the harness actually work? A mutation study
+
+A zero-break sweep is worthless if the harness cannot go red, so the product
+was deliberately broken eight ways, one at a time, each applied to a clean tree
+and reverted before the next. Full evidence:
+[`artifacts/mutation_check.json`](artifacts/mutation_check.json) and
+[`artifacts/mutation/`](artifacts/mutation).
+
+| # | Deliberate bug | Predicted | Result |
+|---|---|---|---|
+| M1 | `v0` signatures accepted | caught | caught — `ACCEPTED_BAD_DELIVERY` |
+| M2 | timestamp tolerance ignored | caught | caught — 600 s-old replay posted |
+| M3 | signature verification disabled | caught | caught by 3 of 4 signature faults; **`TRUNCATE_BODY` missed** |
+| M4 | ingest dedupe removed, DB constraints intact | **not** caught | not caught — ledger held alone |
+| M5 | dedupe removed at *both* layers | caught | caught — `DOUBLE_POST`, 8 transactions for 1 payment |
+| M6 | order-dependence reintroduced | caught | caught — `LOST_EVENT` ×2 |
+| M7 | balance trigger dropped + skewed amount | caught | caught — `INVARIANT_VIOLATION` |
+| M8 | H1 regression | caught | caught — all 4 in-flight kills broke |
+
+All eight predictions held; 15 of 51 scenarios broke. Three results are worth
+more than the tally:
+
+**M4 and M5 together show the dedupe is three layers deep, not two.** Removing
+the ingest fast path changed real behavior — the worker received 13 tasks
+across 4 scenarios instead of 4, so every redelivery it normally absorbs went
+all the way through — and the ledger still recorded exactly one transaction per
+scenario. Making a double-post even *expressible* required removing the ingest
+fast path, dropping **both** `UNIQUE` constraints, *and* replacing the
+deterministic `uuid5(event.id)` transaction id with a random `uuid4`. An
+intermediate probe with the primary key left intact produced zero breaks: the
+deterministic id is an independent third line of defense nobody designed as
+one. A green result under M4 is a pass for defense-in-depth, not a blind spot —
+with the authoritative layer intact there is no wrong ledger state for any
+detector to see.
+
+**M7 is the project's thesis under test.** With the database's guarantee
+removed and a charge debiting the full gross instead of gross-minus-fee, the
+harness reported money created from nothing — debit-normal 43808 vs
+credit-normal 42545, a difference of 1263, *exactly the processing fee* — with
+no fault injected at all.
+
+**M6 is recorded as a weak injection.** Its `NONE` control also broke: with
+only refund events delivered, no refund can post under that mutation
+regardless of arrival order, so the bug is detectable without `REORDER` and
+the fault's only contribution was doubling the lost-event count. The harness
+caught it, but not for the reason the fault claims to test.
 
 ## Coverage notes
+
+### Chaos harness (Phase 2)
+
+- **7 of 70 fault × event-kind combinations were deliberately not generated**,
+  each recorded with a reason in every run's summary JSON. All seven are a
+  fault whose ground truth is "exactly one transaction" crossed with
+  `invoice.payment_failed`, which posts no transaction at all — the scenario
+  could not fail no matter how broken the system was, and a green result would
+  have been a lie.
+- **`PARTIAL_WRITE` proves atomicity only for the kills that actually land
+  mid-write.** In the final sweep that was **6 of 12**; the other 6 killed the
+  worker outside a write window and prove the weaker (still real) property that
+  an unclean death plus a redelivery yields exactly one transaction. The runner
+  measures this per run rather than assuming it.
+- **`DELAY` compresses time.** Its past-tolerance variant back-dates the
+  signature instead of sleeping 300 s. Behaviour at ingest is identical; the
+  run takes seconds instead of minutes.
+- **`DROP` is measured against the harness's own record of what it delivered**,
+  not against Stripe, because the hermetic loop uses synthetic events that have
+  no Stripe counterpart. `reconcile_stripe` (diffing real
+  `/v1/balance_transactions`) exists and is unit-tested, but no live
+  reconciliation run has been recorded yet.
+- The sweep uses one seed (`--seed 7`, 3 repeats per combination). It is not a
+  randomized search over parameter space; a wider sweep is Phase 5's job.
+- The mutation study covers 8 mutations, not an exhaustive mutation space, and
+  each was run against a targeted subset of faults rather than the full sweep.
+
+### Pre-gate review (Phase 1)
 
 - The review verified the **top 10** findings by severity; **17 lower-severity
   candidates were deferred unverified** (list in the artifacts JSON). Of
