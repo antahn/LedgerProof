@@ -1,0 +1,35 @@
+# Local services. The brief (§3) prefers native services on macOS/brew; on this
+# Windows machine Docker Desktop is the installed option and Redis has no official
+# native Windows build, so containers are primary here. Same engines, same
+# semantics: real Postgres 17 (SERIALIZABLE races) and real Redis 7 (GCRA state).
+services:
+  db:
+    image: postgres:17
+    container_name: ledgerproof-db
+    environment:
+      POSTGRES_PASSWORD: ledgerproof   # local dev container only; not a secret
+      POSTGRES_DB: ledgerproof
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./docker/initdb:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d ledgerproof"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  redis:
+    image: redis:7
+    container_name: ledgerproof-redis
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+volumes:
+  pgdata:

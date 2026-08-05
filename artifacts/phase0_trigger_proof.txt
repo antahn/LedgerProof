@@ -1,0 +1,45 @@
+=== 1. UNBALANCED transaction (debit 1000, credit 900) — must be REJECTED at COMMIT ===
+BEGIN
+INSERT 0 1
+INSERT 0 1
+INSERT 0 1
+=== 2. BALANCED transaction (debit 970 net + 30 fee, credit 1000 gross) — must COMMIT ===
+ERROR:  unbalanced transaction 00000000-0000-4000-8000-000000000001 in USD: debits=1000 credits=900
+CONTEXT:  PL/pgSQL function assert_txn_balanced() line 15 at RAISE
+BEGIN
+INSERT 0 1
+INSERT 0 1
+INSERT 0 1
+INSERT 0 1
+COMMIT
+=== 3. UPDATE on entries — must RAISE ===
+ERROR:  ledger is append-only: UPDATE on entries is forbidden
+CONTEXT:  PL/pgSQL function forbid_mutation() line 3 at RAISE
+=== 4. DELETE on entries — must RAISE ===
+=== 5. TRUNCATE entries — must RAISE ===
+ERROR:  ledger is append-only: DELETE on entries is forbidden
+CONTEXT:  PL/pgSQL function forbid_mutation() line 3 at RAISE
+ERROR:  ledger is append-only: TRUNCATE on entries is forbidden
+CONTEXT:  PL/pgSQL function forbid_mutation() line 3 at RAISE
+=== 6. ZERO-entry transaction — must be REJECTED at COMMIT (min 2 entries) ===
+BEGIN
+INSERT 0 1
+ERROR:  transaction 00000000-0000-4000-8000-000000000003 has 0 entries; a balanced transaction needs at least 2
+CONTEXT:  PL/pgSQL function assert_txn_min_entries() line 6 at RAISE
+=== 7. Balances (derived view) and the global invariant after the one committed transaction ===
+        name        |   kind    | normal | balance_minor 
+--------------------+-----------+--------+---------------
+ bank               | asset     | debit  |             0
+ customer_liability | liability | credit |             0
+ dispute_losses     | expense   | debit  |             0
+ processing_fees    | expense   | debit  |            30
+ refunds_contra     | expense   | debit  |             0
+ revenue            | revenue   | credit |          1000
+ stripe_balance     | asset     | debit  |           970
+(7 rows)
+
+ currency | sum_debit_normal | sum_credit_normal 
+----------+------------------+-------------------
+ USD      |             1000 |              1000
+(1 row)
+

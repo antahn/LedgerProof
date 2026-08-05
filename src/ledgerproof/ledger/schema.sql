@@ -1,0 +1,8 @@
+-- The canonical schema lives in migrations/ (plain numbered .sql, applied by
+-- scripts/migrate.py). This file exists to satisfy the repo layout in the brief
+-- and points there:
+--
+--   migrations/001_ledger.sql        types, tables, view, append-only triggers,
+--                                    deferred balance + min-entries triggers,
+--                                    least-privilege ledger_app role
+--   migrations/002_seed_accounts.sql chart of accounts (§4.3)

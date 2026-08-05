@@ -1,0 +1,22 @@
+# Secrets never touch git. .env holds real keys; .env.example holds names only.
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.hypothesis/
+dist/
+build/
+
+# artifacts/ IS committed — it is the evidence base for every claimed number.
+# Only secrets are excluded, never results.
+
+# OS / editor noise
+.DS_Store
+Thumbs.db
