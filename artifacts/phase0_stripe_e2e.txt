@@ -1,0 +1,27 @@
+﻿=== stripe listen (tail) — 2026-08-04T23:31:58.5917759-07:00 ===
+Getting ready...
+Ready! You are using Stripe API Version [2026-07-29.dahlia]. Your webhook signing secret is whsec_<redacted-see-.env> (^C to quit)
+2026-08-04 23:27:45   --> charge.succeeded [evt_3U0yImJBWNhGzz6N1A5cmKGC]
+2026-08-04 23:27:45  <--  [200] POST http://127.0.0.1:8000/webhook [evt_3U0yImJBWNhGzz6N1A5cmKGC]
+
+=== worker log: old code retries exhausted -> durable 'failed' (R5 behavior observed live) ===
+    txn = build_transaction(event)
+          ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Anthony\LedgerProof\src\ledgerproof\stripe_io\mapping.py", line 165, in build_transaction
+    fee = _charge_fee(obj, fee_minor)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Anthony\LedgerProof\src\ledgerproof\stripe_io\mapping.py", line 107, in _charge_fee
+    raise MissingFeeData(bt if isinstance(bt, str) else None)
+ledgerproof.stripe_io.mapping.MissingFeeData: fee not present in payload; fetch balance transaction None and retry with fee_minor
+
+=== worker log after fix + re-drive ===
+[2026-08-04 23:30:34,119: INFO/MainProcess] mingle: all alone
+[2026-08-04 23:30:34,160: INFO/MainProcess] celery@Anthony_Ahn ready.
+[2026-08-04 23:31:24,680: INFO/MainProcess] Task ledgerproof.process_event[65c1e504-700e-47ed-b1cd-71667ceb6924] received
+[2026-08-04 23:31:25,309: INFO/MainProcess] HTTP Request: GET https://api.stripe.com/v1/charges/ch_3U0yImJBWNhGzz6N1w5U8ZSY?expand%5B0%5D=balance_transaction "HTTP/1.1 200 OK"
+[2026-08-04 23:31:25,357: INFO/MainProcess] Task ledgerproof.process_event[65c1e504-700e-47ed-b1cd-71667ceb6924] succeeded in 0.6880000000819564s: 'posted'
+
+=== ledger state after live charge posted ===
+stripe_events: [('evt_3U0yImJBWNhGzz6N1A5cmKGC', 'charge.succeeded', 'processed')]
+balances: {'processing_fees': 63, 'refunds_contra': 0, 'dispute_losses': 0, 'bank': 0, 'customer_liability': 0, 'revenue': 1100, 'stripe_balance': 1037}
+invariant: {'ok': True, 'per_currency': [{'currency': 'USD', 'sum_debit_normal': 1100, 'sum_credit_normal': 1100, 'difference': 0, 'ok': True}]}

@@ -116,6 +116,36 @@ one lives precisely in the gap the test suite didn't cover.
   when retries are exhausted the event's row is durably marked `failed` — a
   dead-letter signal the reconciler can act on — and the error re-raised.
 
+## Found by the first live delivery — 2026-08-04
+
+### R6 (major) — Real webhooks carry `balance_transaction: null`; the fetch path assumed at least an id
+
+- **Where:** `worker/handlers.py` (missing-fee fetch path)
+- **Repro:** the very first real webhook this system ever received.
+  `stripe trigger charge.succeeded` → the delivered payload's
+  `balance_transaction` was `null`, not an unexpanded id string — Stripe does
+  not attach it until the charge settles into the balance. Raw evidence:
+  [`artifacts/phase0_stripe_e2e.txt`](artifacts/phase0_stripe_e2e.txt).
+- **Diagnosis:** `MissingFeeData` carried `balance_transaction_id=None` and
+  the handler's fetch path required a non-None id, so it re-raised. Every
+  synthetic fixture in the test suite had either an expanded object or an id
+  string — the null-until-settlement shape exists only in production traffic.
+  Two designed behaviors performed exactly as intended around the bug: the
+  worker retried with jittered exponential backoff (3.4s → 6.8s → 15.5s → …,
+  observed live), and on exhaustion durably marked the event `failed` (the R5
+  dead-letter fix) with zero partial ledger writes — the event was recoverable,
+  not lost.
+- **Fix:** when the payload lacks even the balance-transaction id, the handler
+  re-fetches the *charge* by the id it does have, with
+  `expand[]=balance_transaction` (§5.3: fetch the missing object using the IDs
+  on hand). If the re-fetched charge is still unsettled, re-raising is correct:
+  the backoff retry waits out settlement rather than inventing a fee. The
+  `failed` event was then re-driven from its stored payload through the fixed
+  worker — idempotently — and posted with the true live numbers: gross 100,
+  fee 33 (Stripe's real 2.9% + 30¢ test fee, fetched from the API), net 67;
+  invariant 1100 == 1100. Regression tests cover both the refetch-and-post and
+  the still-unsettled-raise paths.
+
 ## Found by the chaos harness
 
 *(the harness has not run — Phase 2)*

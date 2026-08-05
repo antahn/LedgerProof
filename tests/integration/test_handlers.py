@@ -23,9 +23,11 @@ class StubStripeClient:
     def __init__(self, responses: dict[str, dict] | None = None) -> None:
         self.responses = responses or {}
         self.requests: list[str] = []
+        self.params: list[dict | None] = []
 
     def get(self, path: str, params: dict | None = None) -> dict:
         self.requests.append(path)
+        self.params.append(params)
         return self.responses[path]
 
 
@@ -133,6 +135,67 @@ def test_missing_fee_is_fetched_from_stripe(db_url) -> None:
     assert b["processing_fees"] == 59
     assert b["revenue"] == 1000
     assert invariant.check(db_url).ok
+
+
+def test_null_balance_transaction_refetches_charge(db_url) -> None:
+    # Observed live (2026-08-04): a real charge.succeeded delivered at
+    # charge-creation time carries balance_transaction=None — no fee, not even
+    # an id to fetch. The handler must re-fetch the CHARGE with the balance
+    # transaction expanded rather than fail or invent a fee.
+    event = charge_succeeded_event(event_id="evt_ch_003", charge_id="ch_003", expanded=True)
+    event["data"]["object"]["balance_transaction"] = None
+    stub = StubStripeClient(
+        {
+            "/v1/charges/ch_003": {
+                "id": "ch_003",
+                "object": "charge",
+                "amount": 1000,
+                "currency": "usd",
+                "balance_transaction": {
+                    "id": "txn_bt_003",
+                    "object": "balance_transaction",
+                    "amount": 1000,
+                    "fee": 59,
+                    "net": 941,
+                    "currency": "usd",
+                },
+            }
+        }
+    )
+    assert handle_event(event, db_url=db_url, client=stub) == "posted"
+    assert stub.requests == ["/v1/charges/ch_003"]
+    assert stub.params == [{"expand": ["balance_transaction"]}]
+    b = balances(db_url)
+    assert b["stripe_balance"] == 941
+    assert b["processing_fees"] == 59
+    assert b["revenue"] == 1000
+    assert invariant.check(db_url).ok
+
+
+def test_unsettled_charge_still_missing_fee_raises_for_retry(db_url) -> None:
+    # If the re-fetched charge STILL has balance_transaction=None (charge not
+    # yet settled into the balance), the handler must raise so the worker's
+    # backoff retry waits out settlement — never guess a fee.
+    import pytest
+
+    from ledgerproof.stripe_io.mapping import MissingFeeData
+
+    event = charge_succeeded_event(event_id="evt_ch_004", charge_id="ch_004", expanded=True)
+    event["data"]["object"]["balance_transaction"] = None
+    stub = StubStripeClient(
+        {
+            "/v1/charges/ch_004": {
+                "id": "ch_004",
+                "object": "charge",
+                "amount": 1000,
+                "currency": "usd",
+                "balance_transaction": None,
+            }
+        }
+    )
+    with pytest.raises(MissingFeeData):
+        handle_event(event, db_url=db_url, client=stub)
+    assert txn_count(db_url) == 0
 
 
 def test_refund_posts_without_prior_charge(db_url) -> None:

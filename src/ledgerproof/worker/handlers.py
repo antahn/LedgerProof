@@ -60,12 +60,11 @@ def handle_event(
     try:
         txn = build_transaction(event)
     except MissingFeeData as exc:
-        # Order-independence: the payload lacks the fee, so fetch the
-        # balance_transaction by the id on hand — never invent state.
-        if client is None or exc.balance_transaction_id is None:
+        # Order-independence: the payload lacks the fee, so fetch what is
+        # missing by the ids on hand — never invent state.
+        if client is None:
             raise
-        fetched = client.get(f"/v1/balance_transactions/{exc.balance_transaction_id}")
-        txn = build_transaction(event, fee_minor=fetched["fee"])
+        txn = build_transaction(event, fee_minor=_resolve_fee(event, exc, client))
 
     if txn is None:
         # Event moves no money (e.g. invoice.payment_failed): an event-log
@@ -87,6 +86,28 @@ def handle_event(
         outcome = PostOutcome.DUPLICATE
     _mark_status(db_url, event, "processed")
     return "posted" if outcome is PostOutcome.POSTED else "duplicate"
+
+
+def _resolve_fee(event: dict, exc: MissingFeeData, client: StripeEgressClient) -> int:
+    """Fetch the fee the payload didn't carry — never invent state.
+
+    Real payloads can omit even the balance transaction ID: a charge.succeeded
+    delivered at charge-creation time carries balance_transaction=null until
+    the charge settles into Stripe's balance (observed live, 2026-08-04). In
+    that case re-fetch the charge with the balance transaction expanded. If
+    Stripe still has no fee, re-raising is CORRECT: the worker's backoff retry
+    waits out settlement rather than guessing a fee.
+    """
+    if exc.balance_transaction_id is not None:
+        return client.get(f"/v1/balance_transactions/{exc.balance_transaction_id}")["fee"]
+    obj = event.get("data", {}).get("object", {})
+    obj_id = obj.get("id")
+    if event.get("type") == "charge.succeeded" and isinstance(obj_id, str):
+        charge = client.get(f"/v1/charges/{obj_id}", params={"expand": ["balance_transaction"]})
+        bt = charge.get("balance_transaction")
+        if isinstance(bt, dict):
+            return int(bt["fee"])
+    raise exc
 
 
 def _mark_status(db_url: str, event: dict, status: str) -> None:
