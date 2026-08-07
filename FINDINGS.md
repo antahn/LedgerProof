@@ -300,6 +300,31 @@ missing. Conservation proves internal consistency, not agreement with reality.
 Only the explicit per-cycle count catches it — which is why the suites assert
 it rather than leaning on the invariant.
 
+## Found while preparing to publish — 2026-08-07
+
+### S1 (process) — A live signing secret reached a committed artifact
+
+- **Where:** `artifacts/phase0_stripe_e2e.txt`, committed from `ed36a1f` onward.
+- **How it happened:** the artifact was captured by tailing the `stripe listen`
+  log, whose startup banner prints the endpoint signing secret. The capture was
+  mechanical — "record the raw evidence" — and the banner came along with it.
+  Reading the diff did not catch it, because the line looks like log output,
+  which is exactly what it was.
+- **Impact:** bounded but real. The leaked value was a **test-mode webhook
+  signing secret**, not an API key — it can forge webhook signatures to an
+  endpoint an attacker would also have to reach, and it touches no live money.
+  No `sk_` key appeared in any commit, verified across all of history. The
+  repository had never been pushed, so exposure stayed local.
+- **Fix:** the secret was scrubbed from every commit
+  (`git filter-branch` over all refs, reflog expired, objects pruned), with the
+  artifact's surrounding evidence left intact. `scripts/scan_secrets.py` now
+  matches credentials **by shape** — a real signing secret is 64 hex characters,
+  a real key is a long base62 string — so it cannot be satisfied by an allowlist
+  of "safe" paths, and it runs in CI before any test.
+- **Why it is written down:** the brief's rule is that secrets never touch git,
+  and the interesting part is not the rule but the failure mode. Careful review
+  of a diff did not catch this; a check keyed to the shape of the thing did.
+
 ## Coverage notes
 
 ### Lifecycle suites (Phase 3)

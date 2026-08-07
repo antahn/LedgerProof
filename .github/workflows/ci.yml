@@ -58,6 +58,11 @@ jobs:
 
       - run: uv run ruff check .
 
+      # Runs before any test: a leaked credential is not something to discover
+      # after the artifacts upload.
+      - name: Secret scan (working tree + history)
+        run: uv run python scripts/scan_secrets.py --history
+
       # The product suite: unit + integration + the chaos harness. No secrets
       # needed — the harness signs its own deliveries.
       - name: Tests (unit, integration, chaos)
