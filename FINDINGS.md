@@ -321,6 +321,15 @@ it rather than leaning on the invariant.
   matches credentials **by shape** — a real signing secret is 64 hex characters,
   a real key is a long base62 string — so it cannot be satisfied by an allowlist
   of "safe" paths, and it runs in CI before any test.
+- **Rotation was attempted and is not available.** Re-authenticating the Stripe
+  CLI (`stripe login`) issues a new CLI credential but returns the **same**
+  signing secret: the `stripe listen` secret is account-scoped, not
+  per-session, and the CLI exposes no command to rotate it. So the leaked value
+  is still the live test-mode CLI signing secret, and this entry says so rather
+  than claiming a rotation that did not happen. What it permits is forging a
+  webhook signature to a listener an attacker must already be able to reach, in
+  test mode, moving no real money — which is why the containment (scrub +
+  scanner) is the substantive fix and rotation would have been belt-and-braces.
 - **Why it is written down:** the brief's rule is that secrets never touch git,
   and the interesting part is not the rule but the failure mode. Careful review
   of a diff did not catch this; a check keyed to the shape of the thing did.
