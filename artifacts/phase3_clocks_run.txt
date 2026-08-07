@@ -1,0 +1,17 @@
+============================= test session starts =============================
+platform win32 -- Python 3.12.13, pytest-9.1.1, pluggy-1.6.0 -- C:\Users\Anthony\LedgerProof\.venv\Scripts\python.exe
+cachedir: .pytest_cache
+hypothesis profile 'default'
+rootdir: C:\Users\Anthony\LedgerProof
+configfile: pyproject.toml
+plugins: anyio-4.14.2, hypothesis-6.165.1, asyncio-1.4.0
+asyncio: mode=Mode.AUTO, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collecting ... collected 5 items
+
+tests/clocks/test_dunning.py::test_failed_renewal_retries_then_reaches_terminal_state PASSED [ 20%]
+tests/clocks/test_negative_control.py::test_suite_goes_red_when_the_handler_drops_the_fee PASSED [ 40%]
+tests/clocks/test_negative_control.py::test_suite_goes_red_when_the_handler_posts_nothing PASSED [ 60%]
+tests/clocks/test_renewal.py::test_each_renewal_posts_exactly_one_balanced_transaction PASSED [ 80%]
+tests/clocks/test_trial.py::test_trial_warns_then_converts PASSED        [100%]
+
+======================== 5 passed in 180.02s (0:03:00) ========================

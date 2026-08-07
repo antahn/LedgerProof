@@ -269,7 +269,65 @@ regardless of arrival order, so the bug is detectable without `REORDER` and
 the fault's only contribution was doubling the lost-event count. The harness
 caught it, but not for the reason the fault claims to test.
 
+## Measured: deterministic lifecycle suites — 2026-08-07
+
+Not a bug list — the Phase 3 result is a measurement. Three lifecycle suites
+plus two negative controls run against the live Stripe sandbox on test clocks.
+Raw output: [`artifacts/phase3_clocks_run.txt`](artifacts/phase3_clocks_run.txt);
+metrics: [`artifacts/clocks_run.json`](artifacts/clocks_run.json).
+
+| | Measured |
+|---|---|
+| Wall-clock runtime, all 5 suites | **180.0 s** |
+| Simulated time covered | **124.2 days** |
+| Trial | warned at `trial_end − 3d`, converted, charged 1500 minor |
+| Renewal | 3 cycles, exactly one balanced transaction each, 7200 minor total |
+| Dunning | **6 payment attempts**, terminal state `subscription.canceled` |
+
+**The suites can fail.** A suite that cannot fail proves only that the API
+responded, so two negative controls break the money path and require the
+suites' own assertions to go red. The second calls
+`clockkit.assert_cycles_posted` — the exact function the renewal suite passes
+with — rather than a hand-written doomed assert, which would prove nothing
+about the suite. The first drops the fee from a charge and requires the
+database's deferred trigger to refuse the write, then verifies nothing
+half-written survived.
+
+Worth repeating from H1, because the control demonstrates it again in a
+different setting: when the handler silently posts *nothing*, **the
+money-conservation invariant stays green** while an entire billing cycle is
+missing. Conservation proves internal consistency, not agreement with reality.
+Only the explicit per-cycle count catches it — which is why the suites assert
+it rather than leaning on the invariant.
+
 ## Coverage notes
+
+### Lifecycle suites (Phase 3)
+
+- **Events reach the ledger through the worker's `handle_event`, not over
+  HTTP.** The suites pull events from Stripe's Events API and feed the handled
+  ones straight to the handler, so mapping, posting, and the invariant are
+  exercised, but signature verification and the ingest endpoint are not. Those
+  are covered end-to-end by the chaos harness and by the live `stripe listen`
+  run recorded in `artifacts/phase0_stripe_e2e.txt`.
+- **Event scoping is by object id**, so two suites sharing the sandbox cannot
+  read each other's events. `assert_listing_is_scoped` explicitly proves the
+  documented trap is real (an unscoped customer list does *not* return
+  test-clock customers), because a suite built on an unscoped list would find
+  nothing and pass vacuously.
+- **Dunning's terminal state depends on account billing settings.** This
+  sandbox is configured to cancel the subscription after retries are
+  exhausted; an account set to "mark uncollectible" or "leave past due" would
+  reach a different documented terminal state. The suite accepts any of the
+  documented terminals and records which one occurred rather than asserting a
+  single account-specific outcome.
+- **`DELAY`-style time compression does not apply here** — these are real
+  advances against real Stripe state; the 124.2 simulated days are genuine.
+- **The CI workflow has not run remotely.** `.github/workflows/ci.yml` is
+  written and the suites pass locally under the same commands, but this repo
+  has no GitHub remote yet, so no hosted run exists to review. The lifecycle
+  step is deliberately conditional on the sandbox secret and warns loudly when
+  absent, so a secretless run can never be mistaken for a passing one.
 
 ### Chaos harness (Phase 2)
 

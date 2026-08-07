@@ -37,7 +37,10 @@ asyncio_mode = "auto"
 # harness/ is a top-level package outside the src layout: the adversary is not
 # shipped with the product it attacks.
 pythonpath = ["."]
-markers = ["chaos: starts real processes (ingest, worker) and a real database"]
+markers = [
+    "chaos: starts real processes (ingest, worker) and a real database",
+    "clocks: drives the live Stripe sandbox via test clocks (slow, needs sk_test_)",
+]
 
 [tool.ruff]
 line-length = 100

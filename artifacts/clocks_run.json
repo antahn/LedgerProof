@@ -1,0 +1,25 @@
+{
+  "wall_clock_s": 179.6,
+  "simulated_span_days": 124.2,
+  "suites": [
+    {
+      "suite": "dunning",
+      "simulated_span_s": 4240800,
+      "payment_attempts": 6,
+      "terminal_state": "subscription.canceled",
+      "retry_steps": 6
+    },
+    {
+      "suite": "renewal",
+      "simulated_span_s": 5277600,
+      "cycles": 3,
+      "revenue_minor": 7200
+    },
+    {
+      "suite": "trial",
+      "simulated_span_s": 1216800,
+      "revenue_minor": 1500
+    }
+  ],
+  "recorded_at": "2026-08-07T19:01:45.8630163Z"
+}

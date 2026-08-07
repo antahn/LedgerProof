@@ -1,0 +1,88 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: ledgerproof
+          POSTGRES_DB: ledgerproof
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 2s --health-timeout 3s --health-retries 30
+      redis:
+        image: redis:7
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 2s --health-timeout 3s --health-retries 30
+
+    env:
+      DATABASE_URL: postgresql://postgres:ledgerproof@localhost:5432/ledgerproof
+      TEST_DATABASE_URL: postgresql://postgres:ledgerproof@localhost:5432/ledgerproof_test
+      APP_DATABASE_URL: postgresql://ledger_app:ledger_app@localhost:5432/ledgerproof
+      REDIS_URL: redis://localhost:6379/0
+      # Empty on forks and on any repo without the secret configured; the
+      # lifecycle step keys off this so an absent sandbox skips loudly rather
+      # than failing the build or silently passing.
+      STRIPE_SECRET_KEY: ${{ secrets.STRIPE_TEST_SECRET_KEY }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Create databases
+        run: |
+          psql "postgresql://postgres:ledgerproof@localhost:5432/postgres" \
+            -c 'CREATE DATABASE ledgerproof_test'
+
+      - run: uv sync
+
+      - name: Apply migrations
+        run: |
+          uv run python scripts/migrate.py
+          uv run python scripts/migrate.py --test
+
+      - run: uv run ruff check .
+
+      # The product suite: unit + integration + the chaos harness. No secrets
+      # needed — the harness signs its own deliveries.
+      - name: Tests (unit, integration, chaos)
+        run: uv run pytest -m "not clocks" -q
+
+      # Lifecycle suites drive the live Stripe sandbox. They are skipped rather
+      # than failed when the secret is absent (a fork PR cannot see it), and
+      # the skip is reported so an absent run is never mistaken for a pass.
+      - name: Lifecycle suites (Stripe test clocks)
+        if: ${{ env.STRIPE_SECRET_KEY != '' }}
+        env:
+          LEDGERPROOF_RUN_STAMP: ${{ github.run_id }}
+        run: uv run pytest -m clocks -q
+
+      - name: Report clock coverage
+        if: ${{ always() }}
+        run: |
+          if [ -f artifacts/clocks_run.json ]; then
+            cat artifacts/clocks_run.json
+          else
+            echo "::warning::no test-clock run recorded (sandbox secret absent?)"
+          fi
+
+      - uses: actions/upload-artifact@v4
+        if: ${{ always() }}
+        with:
+          name: ledgerproof-artifacts
+          path: artifacts/
