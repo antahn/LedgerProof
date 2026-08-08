@@ -357,11 +357,18 @@ it rather than leaning on the invariant.
   single account-specific outcome.
 - **`DELAY`-style time compression does not apply here** — these are real
   advances against real Stripe state; the 124.2 simulated days are genuine.
-- **The CI workflow has not run remotely.** `.github/workflows/ci.yml` is
-  written and the suites pass locally under the same commands, but this repo
-  has no GitHub remote yet, so no hosted run exists to review. The lifecycle
-  step is deliberately conditional on the sandbox secret and warns loudly when
-  absent, so a secretless run can never be mistaken for a passing one.
+- **Hosted CI: green, with the lifecycle step skipped.**
+  [Run 31269371028](https://github.com/antahn/LedgerProof/actions/runs/31269371028)
+  passed on Ubuntu — migrations, ruff, the secret scan, and all 430 unit,
+  integration, and **chaos** tests. Worth noting: the harness was developed on
+  Windows against Windows-specific process control (`taskkill`, `--pool=solo`,
+  `Popen.kill()`) and ran green on Linux unchanged.
+  The **test-clock suites were skipped**, not run: the sandbox secret was not
+  yet configured on the repository. That step is deliberately conditional and
+  emits a CI warning when the secret is absent, so a secretless run cannot be
+  mistaken for a passing one — but until it runs hosted, the 124.2-simulated-day
+  measurement above stands on the **local** run recorded in
+  `artifacts/phase3_clocks_run.txt`, not on CI.
 
 ### Chaos harness (Phase 2)
 
