@@ -71,10 +71,17 @@ MUTATIONS = (
                 "            return DedupeResult(new=True)\n"
                 "        except psycopg.errors.Error:",
             ),
+            # Absorbs the comma after `memo`: dropping only the two CONSTRAINT
+            # lines leaves a trailing comma before `)` and the migration fails
+            # to parse, which reads as a broken harness rather than a mutation.
             Edit(
                 "migrations/001_ledger.sql",
+                "  memo          TEXT,\n"
+                "  -- Stripe's own documented dedupe key: event.id is NOT sufficient, because\n"
+                "  -- two distinct Event objects can be generated for the same state change.\n"
                 "  CONSTRAINT dedupe_event  UNIQUE (stripe_event_id),\n"
                 "  CONSTRAINT dedupe_object UNIQUE (event_type, stripe_object_id)",
+                "  memo          TEXT\n"
                 "  -- MUTATION M5: both dedupe constraints removed",
             ),
             Edit(
