@@ -22,8 +22,11 @@ was then attacked by an independent skeptical verifier instructed to refute it,
 with empirical demonstration required. Raw output (all 27 raw findings, the 5
 confirmations, 5 refutations, 17 deferred):
 [`artifacts/reviews/phase1_adversarial_review.json`](artifacts/reviews/phase1_adversarial_review.json).
-All 104 Phase-1 tests were green while every one of these bugs existed — each
-one lives precisely in the gap the test suite didn't cover.
+130 tests are green today
+([`artifacts/phase1_test_run.txt`](artifacts/phase1_test_run.txt)); the
+reviewers recorded 104 green at the time these bugs existed — their figure,
+taken from their prose rather than a captured run. Either way, each bug lived
+precisely in the gap the suite did not cover.
 
 ### R1 (critical) — One real payment posts twice
 
@@ -162,7 +165,7 @@ Raw: [`artifacts/chaos_20260805T074627Z.jsonl`](artifacts/chaos_20260805T074627Z
 
 - **Where:** `ingest/app.py` (outbox recovery) with `worker/tasks.py` (broker config)
 - **Repro:** `uv run python -m harness.runner --seed 7 --per-combo 3` on the
-  code at commit `ed36a1f`. The `PARTIAL_WRITE` fault SIGKILLs the worker
+  code at commit `08cb5f6`. The `PARTIAL_WRITE` fault SIGKILLs the worker
   ~100 ms after delivery, then redelivers as Stripe would. Three of twelve kill
   scenarios ended with an empty ledger where entries were due — e.g.
   `partial_write-charge_succeeded-0001` expected
@@ -201,16 +204,27 @@ Raw: [`artifacts/chaos_20260805T074627Z.jsonl`](artifacts/chaos_20260805T074627Z
 The adversary was wrong before the product was. None of these are product
 defects; all three would have made the measurements lie, in both directions.
 
-- **The kill was too slow to ever land mid-write.** `kill_worker` took
-  **922 ms**, because `uv run` remains a *parent* of the real Python process
-  and reaching the child meant a `taskkill /T` tree walk — against a pipeline
-  that commits in ~150 ms. Across 127 kills, **zero** landed in flight, so
-  `PARTIAL_WRITE` was quietly proving "crash-then-redeliver is safe" while
-  appearing to prove "no half-written transaction." Launching the worker as
-  the venv interpreter directly makes `Popen.kill()` reach the transaction
-  holder in **~0–16 ms**; the runner now records `kills_with_task_in_flight`
-  per run (6 of 12 in the final sweep) so no run can over-claim atomicity.
-  **H1 was only findable after this fix.** A slow adversary is a quiet one.
+- **The kill was too slow to ever land mid-write.** `kill_worker` reached the
+  worker through a `taskkill /T` tree walk, because `uv run` remains a *parent*
+  of the real Python process — measured at roughly a second, against a pipeline
+  that commits in ~150 ms. The two pre-fix sweeps
+  (`chaos_20260805T073233Z`, `073701Z`) each record
+  `kills_with_task_in_flight: 0` of 12, so `PARTIAL_WRITE` was quietly proving
+  "crash-then-redeliver is safe" while appearing to prove "no half-written
+  transaction." Launching the worker as the venv interpreter directly lets
+  `Popen.kill()` reach the transaction holder in single-digit milliseconds, and
+  the runner now records the in-flight count per run so no run can over-claim
+  atomicity. **H1 was only findable after this fix** — a slow adversary is a
+  quiet one. *(The before/after latencies were measured interactively and are
+  not preserved as an artifact; the in-flight counts in the sweep summaries
+  are.)*
+- **The in-flight kill rate is not reproducible, which bounds the claim.**
+  Three runs at identical seed and parameters recorded **11/20, 2/20 and 5/20**
+  kills landing inside a write. The 6-of-12 figure from the Phase-2 sweep is
+  one draw, not a property of the system: `PARTIAL_WRITE` demonstrates
+  atomicity only for the kills that happened to land mid-write in that run.
+  Measuring the rate per run is what keeps the claim honest; it does not make
+  it stable.
 - **Quiescence was global, not per scenario.** One stranded row made *every
   later scenario* report `NOT_QUIESCENT`: 24 of the first sweep's 27 breaks
   were one bug echoing, drowning what those scenarios actually did. Now scoped
@@ -349,15 +363,17 @@ effort plus an effort sweep on Sonnet 5. Raw:
 
 ### The frontier
 
-Classification only (126 held-out cases, 14 fault classes):
+126 held-out cases across 13 fault classes plus a `NONE` baseline. Every column
+is computed over those 126 classification cases only — the 44 repair cases are
+excluded, cost included.
 
 | Run | acc@1 | acc@3 | $/case (batched) | mean output tokens |
 |---|---|---|---|---|
-| **Opus 5** (default) | **0.976** | **1.000** | $0.0311 | 742 |
-| **Sonnet 5** (default) | 0.905 | **1.000** | **$0.0099** | 1,073 |
-| **Haiku 4.5** (default) | 0.825 | 0.841 | $0.0049 | 1,094 |
+| **Opus 5** (default) | **0.976** | **1.000** | $0.0281 | 539 |
+| **Sonnet 5** (default) | 0.905 | **1.000** | **$0.0073** | 1,073 |
+| **Haiku 4.5** (default) | 0.825 | 0.841 | $0.0047 | 1,094 |
 
-**Sonnet 5 matches Opus 5's perfect `acc@3` at 32% of the cost**, and reaches
+**Sonnet 5 matches Opus 5's perfect `acc@3` at 26% of the cost**, and reaches
 93% of its top-choice accuracy. If the task is "rank the likely faults for a
 human to confirm" — which is what on-call triage actually is — the cheaper
 model is indistinguishable from the expensive one on this benchmark. If the
@@ -368,12 +384,12 @@ so it is the wrong choice for a ranked-suggestions workflow.
 
 ### Higher effort never helped — the clearest result in the sweep
 
-| Sonnet 5 effort | acc@1 | acc@3 | $/case |
+| Sonnet 5 effort | acc@1 | acc@3 | $/case (classification only) |
 |---|---|---|---|
-| default | **0.905** | **1.000** | **$0.0099** |
-| `high` | 0.889 | 0.976 | $0.0218 |
-| `medium` | 0.794 | 0.944 | $0.0201 |
-| `low` | 0.794 | 0.952 | $0.0169 |
+| default | **0.905** | **1.000** | **$0.0073** |
+| `high` | 0.889 | 0.976 | $0.0192 |
+| `medium` | 0.794 | 0.944 | $0.0174 |
+| `low` | 0.794 | 0.952 | $0.0160 |
 
 Every explicit effort setting was **worse and more expensive** than leaving it
 alone. `low` and `medium` cost roughly twice the default for eleven points less
@@ -386,13 +402,19 @@ tuning effort downward to save money loses accuracy *without* saving anything.
 Across **264 damaged-ledger cases**, zero correct compensating transactions —
 from any model, at any effort. What separates them is what they did instead:
 
-| Run | correct repairs | false repairs | claimed to fix the unfixable |
-|---|---|---|---|
-| Opus 5 | 0 / 36 | 0 | **0 / 8** |
-| Sonnet 5 (default, `high`) | 0 / 44 | 0 | **0 / 0** |
-| Sonnet 5 `medium` | 0 / 42 | 1 | 1 / 2 |
-| Sonnet 5 `low` | 0 / 36 | **8** | **8 / 8** |
-| Haiku 4.5 | 0 / 36 | **7** | **8 / 8** |
+The fixable stratum is **36 cases in every run** (the M5 double-posts); the
+other 8 are the M7 unbalanced writes that no balanced transaction can repair.
+Where a run answered fewer than 44 repair cases, the remainder returned no
+parseable content — see the parse-failure caveat below.
+
+| Run | correct repairs | false repairs | claimed to fix the unfixable | repair cases answered |
+|---|---|---|---|---|
+| Opus 5 | 0 / 36 | 0 | **0 / 8** | 44 |
+| Sonnet 5 (default) | 0 / 36 | 0 | **0 / 8** | 36 |
+| Sonnet 5 `high` | 0 / 36 | 0 | **0 / 8** | 36 |
+| Sonnet 5 `medium` | 0 / 36 | 1 | 1 / 8 | 38 |
+| Sonnet 5 `low` | 0 / 36 | **8** | **8 / 8** | 44 |
+| Haiku 4.5 | 0 / 36 | **7** | **8 / 8** | 44 |
 
 Opus 5 and Sonnet 5 at default proposed nothing at all — the safe answer, since
 the correct move on an unbalanced write is to say it cannot be repaired. Haiku
@@ -405,8 +427,9 @@ optional.
 
 ### Where the models actually differ
 
-Per-fault accuracy is near-ceiling and identical across models for ten of the
-fourteen classes. Three separate them:
+Per-fault accuracy is near-ceiling and identical across all three models for
+nine of the fourteen classes; two more (`DUPLICATE_OBJECT`, `PARTIAL_WRITE`)
+differ by a single case. Three genuinely separate them:
 
 | Fault | Opus 5 | Sonnet 5 | Haiku 4.5 |
 |---|---|---|---|
@@ -454,9 +477,10 @@ almost never do.
 | `claude-haiku-4-5` | 0.43 | 0.50 | 9.1 s | **$0.0075** | 1,258 |
 
 **The prefix caching worked:** 13 of 14 calls hit cache on *all three* models
-(the first writes it, the rest read). Had it stayed at 2,778 tokens, Haiku
-would have hit 0 of 14 and its measured cost would have been several times
-higher — the fix was worth making before spending, not after.
+(the first writes it, the rest read). Before it was widened past Haiku 4.5's
+4,096-token minimum, Haiku would have hit 0 of 14 and its measured cost — the
+whole point of the frontier — would have been several times higher, with no
+error to notice. The fix was worth making before spending, not after.
 
 **Sonnet 5 is the worst value here, and the reason is visible in the tokens.**
 It costs nearly as much as Opus 5 while matching Haiku's accuracy, because it
@@ -492,7 +516,7 @@ reasoning:
 | `PARTIAL_WRITE` → `DUPLICATE` (×3, incl. via `NONE`) | A kill followed by redelivery leaves two 200s and one transaction — again identical to `DUPLICATE`. The kill leaves no trace in the evidence. |
 | `DELAY` → `NONE` (×3) | The in-tolerance variant delays ~250 ms and posts normally, which is indistinguishable from ordinary jitter at this resolution. |
 
-Roughly a third of all errors fall in these four classes. Reporting a frontier
+Over half of all errors fall in these four classes. Reporting a frontier
 built on them would be publishing the harness's blind spots as a fact about
 Claude, so the full sweep was **not** run until the evidence was fixed.
 
@@ -502,14 +526,26 @@ it hit the wire relative to the event being generated, and what status the
 and the benign `DELAY` widened from 250 ms — indistinguishable from jitter — to
 4 s. Measured on the regenerated set, the classes now separate:
 
+Ranges below are over every scenario of each class in the regenerated set, not
+single exemplars:
+
 | Class | Distinguishing evidence, measured |
 |---|---|
-| `DELAY` | arrived **+4141 ms** against `NONE`'s +93 ms |
-| `CONCURRENT_DUPLICATE` | 8 deliveries, all at +156 ms — **spread 0 ms** |
-| `DUPLICATE` | 2 deliveries, **spread 189 ms** — staggered, not overlapping |
+| `DELAY` | arrives **+4046–4141 ms** against `NONE`'s +47–141 ms |
+| `CONCURRENT_DUPLICATE` | deliveries cluster: arrival **spread 0–17 ms** |
+| `DUPLICATE` | deliveries stagger: **spread 172–672 ms** |
 | `RESPOND_500` | `upstream=[500, 200]`: the forced error is finally visible |
 | `PARTIAL_WRITE` | `worker_restarted: true` |
-| `SLOW_LORIS` | handled for 2218 ms while arriving promptly (+94 ms) |
+| `SLOW_LORIS` | handled for up to **2337 ms** while arriving promptly |
+
+Two of those fields are **reconstructed by the harness, not observed on the
+wire**: `upstream_status` is derived from the plan's `force_500` flag (in the
+hermetic loop nothing actually answers 500 upstream), and `worker_restarted` is
+true because the runner itself killed the worker. Both are signals a real
+on-call engineer would have — Stripe's delivery log carries the upstream
+status, a supervisor log carries the restart — so showing them is defensible,
+but they are reconstructions rather than measurements, and the distinction
+belongs in any description of what the model "sees".
 
 One reclassification worth recording: `worker_restarted` had been on the
 forbidden list, withheld as leakage. That was wrong. A process restart is a
@@ -522,7 +558,8 @@ implies a fault is not leakage; only the label is.
 
 ### S1 (process) — A live signing secret reached a committed artifact
 
-- **Where:** `artifacts/phase0_stripe_e2e.txt`, committed from `ed36a1f` onward.
+- **Where:** `artifacts/phase0_stripe_e2e.txt`, committed from `08cb5f6` onward
+  (the pre-scrub hash was `ed36a1f`, which the scrub itself invalidated).
 - **How it happened:** the artifact was captured by tailing the `stripe listen`
   log, whose startup banner prints the endpoint signing secret. The capture was
   mechanical — "record the raw evidence" — and the banner came along with it.
@@ -575,11 +612,12 @@ implies a fault is not leakage; only the label is.
   single account-specific outcome.
 - **`DELAY`-style time compression does not apply here** — these are real
   advances against real Stripe state; the 124.2 simulated days are genuine.
-- **Hosted CI: green, lifecycle suites included.**
-  [Run 31270280289](https://github.com/antahn/LedgerProof/actions/runs/31270280289)
-  passed every step on Ubuntu — migrations, ruff, the secret scan, all 461
-  unit/integration/**chaos** tests, and the **test-clock lifecycle suites**
-  against the live sandbox. (The first run,
+- **Hosted CI: green, lifecycle suites included.** All seven workflow runs to
+  date have succeeded; the latest on `HEAD` is
+  [run 31276225439](https://github.com/antahn/LedgerProof/actions/runs/31276225439),
+  which passed every step on Ubuntu — migrations, ruff, the secret scan, the
+  full non-clock suite, and the **test-clock lifecycle suites** against the
+  live sandbox. (The first run,
   [31269371028](https://github.com/antahn/LedgerProof/actions/runs/31269371028),
   correctly *skipped* the lifecycle step because the sandbox secret was not yet
   configured.) Worth noting: the chaos harness was developed on Windows against
@@ -591,6 +629,62 @@ implies a fault is not leakage; only the label is.
   124.2-simulated-day / 180.0 s figures above remain the **local** measurement
   from `artifacts/phase3_clocks_run.txt`; the hosted equivalents are in that
   run's uploaded `ledgerproof-artifacts` bundle.
+
+### Found by auditing this file against its own artifacts (Phase 6)
+
+Before the write-up was drafted, every numeric claim here was recomputed from
+the raw JSONL rather than from the summary files written alongside it. Most
+held exactly. These did not, and are corrected above:
+
+- The frontier table's `$/case` and mean-output columns were computed over all
+  170 cases while the table was labelled "classification only" (126). Opus 5's
+  classification-only mean output is **539** tokens, not 742 — 742 was Sonnet's
+  figure. Corrected, which *improves* the headline: Sonnet reaches Opus's
+  `acc@3` at **26%** of the cost, not 32%.
+- The repair table mixed denominators. The fixable stratum is **36 in every
+  run**; two rows showed 44 and 42, which were answered-case counts attached to
+  the wrong column.
+- Several narrative numbers had **no artifact behind them** — a 922 ms kill
+  latency, "127 kills", a live backoff sequence, a 2,778-token prefix, and a CI
+  test count. They were real observations made interactively, but a number in
+  this file is supposed to trace to a committed artifact. They are now either
+  removed, softened to what the artifacts support, or explicitly marked as
+  unpreserved.
+- "Ten of fourteen classes identical" was nine. "Roughly a third of all errors"
+  understated its own point — the four unanswerable classes accounted for
+  **over half**.
+- Three commit hashes cited as reproduction anchors (`ed36a1f`, `bf8460e`) no
+  longer resolve: the `filter-branch` scrub that removed the leaked secret
+  rewrote every hash in the history. Corrected to their surviving equivalents.
+  A history rewrite invalidates every SHA anyone has written down, including
+  the ones inside artifacts — `artifacts/mutation_check.json` still records the
+  dead `bf8460e` and cannot be corrected without editing an artifact, which the
+  project's own rules forbid.
+
+Further limitations the audit surfaced that this file had not admitted:
+
+- **The shedder is not wired into the shipped app.** `ingest/server.py`'s
+  `build_app()` — the documented production factory — never passes `pressure=`,
+  so the deployed application never sheds. Calling that "a deployment decision"
+  understated it.
+- **`reconcile_stripe` has never run against Stripe.** Every one of its call
+  sites is a test using a stub. The live-reconciliation half of the reconciler
+  is unexercised.
+- **The benchmark set is selected by filename.** `run_sweep.py` picks
+  `max(glob("chaos_*.jsonl"))`, so any future chaos run silently redefines what
+  "the benchmark" means. No hash or pin is recorded.
+- **`artifacts/bench_design.json` describes a superseded set.** It was computed
+  against `chaos_20260808T181504Z.jsonl`, generated *before* the evidence
+  fixes; the sweep ran against `chaos_20260808T193114Z.jsonl`. Class balance and
+  split sizes are identical, so the design conclusions stand, but its token
+  counts and sample prompt do not describe what was measured.
+- **The Grafana panel test proves only that metric names are registered.** At
+  zero observations the `/metrics` endpoint emits `# HELP`/`# TYPE` lines but
+  no `ledgerproof_ingest_seconds_bucket` series — which both latency panels
+  query.
+- **The constant-time signature comparison has no test.** It holds by
+  construction (`hmac.compare_digest` inside a loop with no early exit); a
+  timing assertion would be flaky, so it is reviewed rather than tested.
 
 ### Backpressure and observability (Phase 4)
 
