@@ -144,8 +144,8 @@ precisely in the gap the suite did not cover.
   on hand). If the re-fetched charge is still unsettled, re-raising is correct:
   the backoff retry waits out settlement rather than inventing a fee. The
   `failed` event was then re-driven from its stored payload through the fixed
-  worker — idempotently — and posted with the true live numbers: gross 100,
-  fee 33 (Stripe's real 2.9% + 30¢ test fee, fetched from the API), net 67;
+  worker — idempotently — and posted with the true live numbers: gross 1100,
+  fee 63 (Stripe's real 2.9% + 30¢ test fee, fetched from the API), net 1037;
   invariant 1100 == 1100. Regression tests cover both the refetch-and-post and
   the still-unsettled-raise paths.
 
@@ -339,8 +339,8 @@ escalation (5 calm samples vs 2 hot ones) — being slow to stop shedding costs 
 little availability, being quick to stop shedding costs the whole system.
 
 Across the ramp: 800 `TEST_MODE`, 1000 `GET`, 300 `POST` and 20 `CRITICAL`
-requests were shed — the money path lost 20 out of 1005, and only above 0.985
-pressure. **Dark launch dropped 0 while recording byte-identical verdicts**
+requests were shed — the money path lost 20 out of 1005, all at or above 0.985
+pressure (the ramp steps 0.005, so those drops sit at 0.985/0.990/0.995/1.000). **Dark launch dropped 0 while recording byte-identical verdicts**
 (800/1000/300/20), which is the property that makes a dark launch worth
 running. The shedder itself costs **~626,000 decisions/second**, comfortably
 cheaper than the work it protects.
@@ -370,17 +370,25 @@ excluded, cost included.
 | Run | acc@1 | acc@3 | $/case (batched) | mean output tokens |
 |---|---|---|---|---|
 | **Opus 5** (default) | **0.976** | **1.000** | $0.0281 | 539 |
-| **Sonnet 5** (default) | 0.905 | **1.000** | **$0.0073** | 1,073 |
-| **Haiku 4.5** (default) | 0.825 | 0.841 | $0.0047 | 1,094 |
+| **Sonnet 5** (default) | 0.905 | **1.000** | **$0.0073** | 742 |
+| **Haiku 4.5** (default) | 0.825 | 0.841 | $0.0047 | 1,064 |
 
-**Sonnet 5 matches Opus 5's perfect `acc@3` at 26% of the cost**, and reaches
-93% of its top-choice accuracy. If the task is "rank the likely faults for a
-human to confirm" — which is what on-call triage actually is — the cheaper
-model is indistinguishable from the expensive one on this benchmark. If the
-task is "answer once, unattended", Opus 5's 7-point `acc@1` lead is worth its
-3× price. Haiku is half Sonnet's cost but drops 8 points of `acc@1` and, more
-tellingly, 16 points of `acc@3`: its second and third guesses are much weaker,
-so it is the wrong choice for a ranked-suggestions workflow.
+**Sonnet 5 matches Opus 5's perfect `acc@3`**, and reaches 93% of its top-choice
+accuracy. If the task is "rank the likely faults for a human to confirm" — which
+is what on-call triage actually is — the cheaper model is indistinguishable from
+the expensive one on this benchmark. If the task is "answer once, unattended",
+Opus 5's 7-point `acc@1` lead is the reason to pay more. Haiku is half Sonnet's
+cost but drops 8 points of `acc@1` and, more tellingly, 16 points of `acc@3`:
+its second and third guesses are much weaker, so it is the wrong choice for a
+ranked-suggestions workflow.
+
+**The `$/case` ratio is not a model property.** As-run, Sonnet is 26% of Opus's
+cost — but that comparison rides almost entirely on cache asymmetry (see the
+caching caveat below): Sonnet's default run read 99.2% of its prefix tokens from
+cache and Opus's read 8.7%. Renormalised to a warm cache at the same list prices
+and batch discount, Opus is $0.0095/case and Sonnet $0.0072 — a
+**~1.3× ratio, not 3.8×**.
+The accuracy ranking is unaffected. Quote the 26% only with the caveat attached.
 
 ### Higher effort never helped — the clearest result in the sweep
 
@@ -391,39 +399,57 @@ so it is the wrong choice for a ranked-suggestions workflow.
 | `medium` | 0.794 | 0.944 | $0.0174 |
 | `low` | 0.794 | 0.952 | $0.0160 |
 
-Every explicit effort setting was **worse and more expensive** than leaving it
-alone. `low` and `medium` cost roughly twice the default for eleven points less
-accuracy. This is the result the brief asks to be reported honestly if it
-appears: on this task, spending more reasoning does not buy correctness, and
-tuning effort downward to save money loses accuracy *without* saving anything.
+Every explicit effort setting was **worse** than leaving it alone, and tuning
+effort downward to save money lost eleven points of accuracy. This is the result
+the brief asks to be reported honestly if it appears: on this task, spending
+more reasoning does not buy correctness.
+
+**The cost half of that claim does not survive the caching caveat, and is
+withdrawn.** The default run read 99.2% of its prefix from cache;
+`low`/`medium`/`high` read 4.0% / 1.6% / 4.0%. Warm-cache-normalised $/case:
+default $0.0072, `high` $0.0075, `medium` $0.0053, `low` **$0.0042**. Under equal caching `low` is
+roughly 40% *cheaper* than default, so "more expensive" and "saved nothing"
+invert. The accuracy finding stands on its own; the cost comparison between
+effort levels in this table is not evidence.
 
 ### No model produced a single correct repair
 
-Across **264 damaged-ledger cases**, zero correct compensating transactions —
-from any model, at any effort. What separates them is what they did instead:
+**44 distinct damaged ledgers × 6 runs = 264 case-evaluations.** Zero correct
+compensating transactions — from any model, at any effort.
 
 The fixable stratum is **36 cases in every run** (the M5 double-posts); the
 other 8 are the M7 unbalanced writes that no balanced transaction can repair.
 Where a run answered fewer than 44 repair cases, the remainder returned no
 parseable content — see the parse-failure caveat below.
 
-| Run | correct repairs | false repairs | claimed to fix the unfixable | repair cases answered |
-|---|---|---|---|---|
-| Opus 5 | 0 / 36 | 0 | **0 / 8** | 44 |
-| Sonnet 5 (default) | 0 / 36 | 0 | **0 / 8** | 36 |
-| Sonnet 5 `high` | 0 / 36 | 0 | **0 / 8** | 36 |
-| Sonnet 5 `medium` | 0 / 36 | 1 | 1 / 8 | 38 |
-| Sonnet 5 `low` | 0 / 36 | **8** | **8 / 8** | 44 |
-| Haiku 4.5 | 0 / 36 | **7** | **8 / 8** | 44 |
+| Run | correct repairs | repairs proposed on the 36 fixable | false repairs | claimed to fix the unfixable | repair cases answered |
+|---|---|---|---|---|---|
+| Opus 5 | 0 / 36 | **0** | 0 | 0 of 8 answered | 44 |
+| Sonnet 5 (default) | 0 / 36 | **0** | 0 | — (0 of 8 answered) | 36 |
+| Sonnet 5 `high` | 0 / 36 | **0** | 0 | — (0 of 8 answered) | 36 |
+| Sonnet 5 `medium` | 0 / 36 | **0** | 1 | 1 of 2 answered | 38 |
+| Sonnet 5 `low` | 0 / 36 | **0** | **8** | 8 of 8 | 44 |
+| Haiku 4.5 | 0 / 36 | **0** | **7** | 8 of 8 | 44 |
 
-Opus 5 and Sonnet 5 at default proposed nothing at all — the safe answer, since
-the correct move on an unbalanced write is to say it cannot be repaired. Haiku
-and Sonnet-at-`low` confidently proposed repairs for **8 of 8** unbalanced
-writes, damage that provably cannot be undone by any transaction the database
-would accept. **Lower capability and lower effort both correlate with
-confidently proposing impossible fixes** — the failure mode that matters most
-for an agent allowed near money, and the reason the human approval gate is not
-optional.
+**`repair_proposed` is false on all 36 M5 cases in all six runs.** No model
+attempted a repair anywhere it was possible. The `0 / 36` column is zero because
+nobody tried, not because anyone tried and failed — the models are not
+distinguished on the repairable stratum at all. Every repair proposal in the
+study landed on the 8 cases where repair is impossible, and the false-repair
+counts are those same proposals, not an additional set.
+
+Two rows need their denominators read carefully. Opus answered all 8 unfixable
+cases and declined every one — the correct call, and the only run that
+demonstrably made it. **Sonnet at default and `high` returned no parseable
+content on any of the 8**, so they have no `/8` denominator; an earlier draft of
+this file scored their silence as restraint, which the artifacts do not support.
+Sonnet `medium` answered 2 of 8 and claimed to fix 1.
+
+**Where a model expressed a view at all, lower capability and lower effort
+correlated with confidently proposing impossible fixes** — the failure mode that
+matters most for an agent allowed near money, and, together with the uniform
+failure to act on the repairable stratum, the reason the human approval gate is
+not optional.
 
 ### Where the models actually differ
 
@@ -629,6 +655,15 @@ implies a fault is not leakage; only the label is.
   124.2-simulated-day / 180.0 s figures above remain the **local** measurement
   from `artifacts/phase3_clocks_run.txt`; the hosted equivalents are in that
   run's uploaded `ledgerproof-artifacts` bundle.
+- **The wall-clock figure is not stable, and re-running the suite proved it.**
+  The full test suite was re-run during Phase 6 with Stripe credentials present,
+  which exercised the five live clock tests again; that run took **296.7 s**
+  against the recorded 180.0 s. The simulated span (124.2 days) is deterministic
+  and unchanged — it is a property of the test clocks, not the network. Only the
+  wall-clock number moves, and it moves by 65%. `artifacts/clocks_run.json` was
+  restored to the recorded run rather than silently overwritten by the re-run;
+  the re-run's value is recorded here instead. Read "180.0 s" as one draw from a
+  latency-dependent distribution, not a benchmark.
 
 ### Found by auditing this file against its own artifacts (Phase 6)
 
@@ -650,6 +685,55 @@ held exactly. These did not, and are corrected above:
   this file is supposed to trace to a committed artifact. They are now either
   removed, softened to what the artifacts support, or explicitly marked as
   unpreserved.
+
+### Found by auditing the write-up draft — a second pass (Phase 6)
+
+The draft of `writeup/POST.md` was audited against source and raw artifacts by
+three independent adversarial reviewers, and every finding below was then
+recomputed by hand before being applied. **The audit above was not sufficient**;
+three of these change a claim rather than a digit.
+
+- **The "classification only" fix was itself incomplete.** Only Opus's
+  mean-output cell was recomputed; Sonnet's and Haiku's were left at their
+  all-170 values (1,073 and 1,094) under a heading that says otherwise. The
+  classification-only figures are **742.20** and **1,063.90**. Corrected above.
+  The `$/case` column was correct.
+- **The 26%-of-cost headline is dominated by cache asymmetry.** This file
+  already carried the caveat 80 lines away from the claim; the claim is now
+  stated with the correction attached (~1.3× normalised, not 3.8×). The same
+  artifact inverts the effort table's cost comparison, which is withdrawn.
+- **"No model produced a correct repair" understated the result.** No model
+  *proposed* a repair on any of the 36 fixable cases, in any of the six runs —
+  all 17 proposals in the study landed on the 8 unfixable cases. The `0 / 36`
+  column was zero because nobody tried. Verified against `repair_proposed` in
+  `sweep_20260808T194521Z_summary.json` (0/0/0/0/8/8 with 8/8/1 falling on the
+  unfixable stratum).
+- **"Opus 5 and Sonnet 5 at default proposed nothing — the safe answer" was
+  unsupported for Sonnet.** Sonnet at default and `high` returned no parseable
+  content on all 8 unfixable cases; silence from a truncated response was being
+  scored as restraint. Only Opus demonstrably declined.
+- The R6 narrative recorded the re-driven live event as "gross 100, fee 33, net
+  67" in the same sentence as "invariant 1100 == 1100", which contradicts
+  itself. `artifacts/phase0_stripe_e2e.txt` records
+  `{'processing_fees': 63, 'revenue': 1100, 'stripe_balance': 1037}`. The
+  written figures were the fee arithmetic for a 100-minor charge that never
+  happened. Corrected above.
+- Smaller corrections applied to the draft only: "24 of 27 breaks" is 24 of 27
+  breaking *scenarios* (33 break records); one of M8's four in-flight kills
+  stranded the outbox row rather than losing money; `CONCURRENT_DUPLICATE` did
+  not fail on all three pilot models (Opus got both cases); the `DROP` exclusion
+  from the 7 ungenerated combinations has the opposite rationale to the other
+  six; the two-entry exhaustiveness proof is exhaustive over account pairs at a
+  fixed amount, with a property test covering amounts; the 32-thread limiter
+  race proves no over-admit, not that the burst is admitted; and the shedder's
+  20 drops occur *at and above* 0.985, not above it.
+- **Reproducibility defects in the draft's own commands**, found by running
+  them: a `\` line continuation that PowerShell passes to pytest as a path
+  (collection then hangs at the drive root rather than erroring), and a `/tmp`
+  output path that resolves to three different locations across shells and
+  silently creates `C:\tmp\` on Windows. Both fixed; the draft now also shows
+  how to read the evidence out of the JSONL, and warns that the in-flight kill
+  lands in roughly five runs of nine.
 - "Ten of fourteen classes identical" was nine. "Roughly a third of all errors"
   understated its own point — the four unanswerable classes accounted for
   **over half**.

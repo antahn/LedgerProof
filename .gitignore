@@ -23,6 +23,10 @@ build/
 # tree and bury real diffs in log churn.
 artifacts/logs/
 
+# Draft write-up — authored and published by hand, deliberately not tracked
+# so the repo doesn't pre-empt the post. Delete this rule to publish it here.
+writeup/POST.md
+
 # OS / editor noise
 .DS_Store
 Thumbs.db

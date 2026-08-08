@@ -23,21 +23,25 @@ delivery to find the bugs the happy path hides.
 
 > **What the benchmark found:** the harness labels its own scenarios, so 315
 > of them became a fault-classification benchmark for free. Across 1,020
-> batched calls, **Sonnet 5 matched Opus 5's perfect `acc@3` at 32% of the
-> cost**; raising Sonnet's effort setting made it *worse and more expensive*
-> every time; and **no model produced a single correct repair** across 264
-> damaged ledgers, while the cheapest configurations confidently proposed
-> fixes for damage that provably cannot be repaired.
+> batched calls, **Sonnet 5 matched Opus 5's perfect `acc@3`** at a fraction of
+> the cost — though how large a fraction turns out to be mostly a caching
+> artifact, and the honest normalised gap is ~1.3×, not 3.8×. Raising Sonnet's
+> effort setting made it *worse* every time. And on 44 damaged ledgers, **no
+> model proposed a repair on any of the 36 that were fixable** — every proposal
+> in the study landed on the 8 where repair is provably impossible, which the
+> cheapest configurations made confidently.
 
 ## Architecture
 
 ```
-Stripe (test mode + test clocks)
-   │  webhook delivery
-   ▼
-chaos-proxy  ──► duplicate │ reorder │ delay │ drop │ 500 │ tamper │ stale-ts │ concurrent-dup │ partial-write
-   │
-   ▼
+LIVE PATH                          HERMETIC PATH (chaos + benchmark)
+Stripe test mode + test clocks     harness replayer ──► chaos-proxy
+  real webhook delivery              duplicate │ reorder │ delay │ drop │ 500
+                                     tamper │ stale-ts │ concurrent-dup │ …
+                                     own signing secret, DB, Redis DB, port
+          │                                       │
+          └───────────────────┬───────────────────┘
+                              ▼
 ingest (FastAPI)   verify signature (raw body, v1 only, constant-time, 5-min tolerance)
    │               dedupe on event.id AND (event.type, data.object.id)
    │               return 200 IMMEDIATELY ──► enqueue
@@ -57,25 +61,28 @@ Postgres           append-only entries; balances are VIEWs; deferred constraint 
 
 ## Why each piece exists
 
-Most "I used the Stripe API" projects are the Checkout quickstart plus a webhook
-handler that assumes each event arrives exactly once, in order. Stripe's own
-documentation says the opposite on both counts. All the interesting engineering
-is in the failure modes.
+Most Stripe integrations are a Checkout quickstart plus a webhook handler that
+assumes each event arrives exactly once, in order. Stripe's own documentation
+says the opposite on both counts. All the interesting engineering is in the
+failure modes, so every component here exists to survive a specific one.
 
-| Feature | Skill it evidences | Who screens for it |
-|---|---|---|
-| Append-only ledger, balances as derived views | Data modeling under a correctness invariant; understanding why mutable balances are a bug | Stripe, Ramp (fintech core) |
-| DB-enforced balance invariant (deferred constraint trigger) | Pushing correctness into the strongest available layer | Stripe, Databricks |
-| Idempotency keys on every outbound `POST`, `Stripe-Should-Retry` honored, backoff **with jitter** | Exactly-once semantics under partial failure; the single most-written-about topic on Stripe's engineering blog | Stripe |
-| Signature verification: v1-only, constant-time, 5-min tolerance, raw body | Security fundamentals that Stripe's docs call out explicitly as footguns | Stripe, Ramp |
-| Order-independent, duplicate-tolerant handlers | Reading docs precisely — Stripe guarantees *neither* ordering *nor* exactly-once delivery | Stripe integration round |
-| **Chaos proxy** | Adversarial thinking; building the thing that finds your own bugs | All three — this is the differentiator |
-| Debugging your own harness's findings | The Stripe "bug bash" round, where a well-explained diagnosis beats a finished fix | Stripe |
-| Test clocks in CI | Deterministic tests for time-dependent behavior; near-zero adoption in student work | Stripe, Databricks |
-| GCRA rate limiter + tiered load shedding | Backpressure and graceful degradation | Stripe (4 limiter tiers), Databricks (operational rigor) |
-| Reconciler diffing against Stripe's own `balance_transactions` | External reconciliation — the thing that catches what tests miss | Ramp, Stripe |
-| Harness-labeled fault benchmark + model frontier | Production-grounded evals, not vibes; cost/latency/accuracy tradeoffs | Ramp, Databricks |
-| Public write-up | Every hired-off-a-project case follows the same pattern: measurable artifact + public post | All three; Stripe's culture is explicitly writing-heavy |
+| Component | The failure it addresses |
+|---|---|
+| Append-only ledger, balances as derived views | A mutable balance column destroys the evidence of how it got there. Overwrite it once and drift becomes undetectable. |
+| DB-enforced balance invariant (deferred constraint trigger) | Application-layer checks are bypassable by the next code path. The trigger runs at `COMMIT` for every writer, including `psql`. |
+| Idempotency keys on every outbound `POST`, `Stripe-Should-Retry` honored, backoff with full jitter | A network timeout is indistinguishable from a success. Retrying without a key double-charges; retrying in lockstep stampedes. |
+| Signature verification: v1-only, constant-time, 5-min tolerance, raw body | Accepting `v0`, comparing with `==`, ignoring the timestamp, or verifying re-serialized JSON each turn the check into decoration. |
+| Order-independent, duplicate-tolerant handlers | Stripe guarantees neither ordering nor exactly-once delivery. Two events can describe one state change, and one event can arrive twice. |
+| **Chaos proxy** | The happy path hides the bugs. This deliberately duplicates, reorders, delays, drops, tampers with, and 500s deliveries, and knows the ground truth for each. |
+| Test clocks | Trials, renewals, and dunning are time-dependent, so they are normally tested by waiting or not at all. A frozen forward-only clock makes them deterministic. |
+| GCRA rate limiter + tiered load shedding | Under overload, something must be dropped. Better to choose the order deliberately — test traffic, then reads, then writes, and the money path last. |
+| Reconciler diffing against Stripe's `balance_transactions` | The invariant proves internal consistency, not agreement with reality. Only an external source catches a payment that never arrived. |
+| Harness-labeled fault benchmark | The harness caused every scenario, so it knows the correct label for free — a real eval set instead of a hand-written one. |
+| Triage agent that proposes but never applies | An agent near money should emit repairs as data. `approve_and_apply` is the only write path, and it refuses without a named human. |
+
+The recurring theme, and the reason most of these exist: **money conservation
+proves the books are internally consistent, it does not prove they match
+reality.** Every serious bug found here lived in that gap.
 
 ## Running it
 
