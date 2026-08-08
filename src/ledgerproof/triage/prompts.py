@@ -32,7 +32,20 @@ from typing import Any
 
 # Fields of a harness artifact record that may reach the agent. Anything not
 # listed is withheld — including fields that do not exist yet.
-OBSERVABLE_FIELDS = ("ledger_diff", "invariant_after", "event_log", "deliveries")
+#
+# `worker_restarted` is here, not in FORBIDDEN_FIELDS, after the pilot showed
+# PARTIAL_WRITE was unanswerable without it: a kill plus a redelivery leaves
+# two 200s and one transaction, which is byte-identical to DUPLICATE. A worker
+# process restarting is not the label — it is a line in any process
+# supervisor's log and the first thing an on-call engineer checks. Withholding
+# it made the class undiagnosable by construction rather than hard.
+OBSERVABLE_FIELDS = (
+    "ledger_diff",
+    "invariant_after",
+    "event_log",
+    "deliveries",
+    "worker_restarted",
+)
 
 # Fields that would give the answer away. Named explicitly so the leakage test
 # can assert on them rather than on a vague notion of "the label".
@@ -45,8 +58,9 @@ FORBIDDEN_FIELDS = (
     "breaks",
     "recon",
     "kinds",
+    # Whether the kill LANDED inside a write is a harness measurement of its
+    # own fault, not an operational signal — that stays hidden.
     "killed_with_task_in_flight",
-    "worker_restarted",
     "redelivered_after_kill",
     "ledger_reset",
     "accepted_rejected",
@@ -193,12 +207,53 @@ enough to push the signature past tolerance is refused as stale. If you see a
 400 for an old `t` AND a large `duration_ms`, prefer `DELAY`; if the timestamp
 is old but the request arrived promptly, prefer `STALE_TIMESTAMP`.
 
-### `SLOW_LORIS` versus `DELAY`
+### `SLOW_LORIS` versus `DELAY` — two different clocks
 
-Both show a long `duration_ms` on a delivery that ultimately succeeds. `DELAY`
-waits before sending and then sends normally; `SLOW_LORIS` holds the
-connection open while dribbling the body. Neither changes the ledger. When you
-cannot separate them, say so and rank both.
+Each delivery carries two timings, and they mean different things:
+
+- **`arrived +N ms`** — how long after the event was generated the request
+  reached ingest. Large here means the request was held back before it was
+  sent: that is `DELAY`.
+- **`after N ms`** — how long ingest spent handling the request once it
+  arrived. Large here means the body itself came in slowly: that is
+  `SLOW_LORIS`.
+
+So a delivery that arrives late and is handled fast is `DELAY`; one that
+arrives promptly and takes seconds to handle is `SLOW_LORIS`. Both end with
+the event posted and the books correct.
+
+### Ordinary deliveries arrive within a few hundred milliseconds
+
+`NONE` and the duplicate faults all arrive promptly. A single delivery that
+arrives seconds after the event was generated is not a normal delivery, even
+if everything else about it looks routine.
+
+### `CONCURRENT_DUPLICATE` versus `DUPLICATE` — read the arrival offsets
+
+Both deliver the same event several times and both end with one transaction.
+The difference is visible in the `arrived +N ms` values:
+
+- `DUPLICATE` sends them **one after another**, so the offsets step apart —
+  each delivery starts after the previous one finished.
+- `CONCURRENT_DUPLICATE` sends them **all at once**, so the offsets cluster
+  within a few milliseconds of each other. That overlap is the whole point of
+  the fault: it is the one that races the ledger's read-modify-write.
+
+### `RESPOND_500` — look at what the SENDER was told
+
+Ingest may record an ordinary 200 while the sender was answered a 500 by
+something in front of it. When a delivery notes that the sender was answered
+HTTP 500 and a later delivery of the same event succeeds, that is a retry
+provoked by a server error, not a duplicate: `RESPOND_500`. Without that line
+the two are indistinguishable.
+
+### `PARTIAL_WRITE` — the worker restart is the signal
+
+A killed worker plus a redelivery produces two 200s and one transaction, which
+is exactly what `DUPLICATE` produces. The distinguishing evidence is the
+infrastructure line: **worker process restarted: yes**. If the worker restarted
+during the window and the event was delivered more than once, prefer
+`PARTIAL_WRITE`. If it did not restart, the fault is one of the duplicates.
 
 ### The three duplicate faults
 
@@ -340,6 +395,8 @@ def build_case(record: dict[str, Any]) -> dict[str, Any]:
             "signature_header": d.get("request_signature_header"),
             "body_bytes": d.get("request_body_bytes"),
             "body_parses_as_json": d.get("request_body_parses_as_json"),
+            "arrived_after_ms": d.get("arrived_after_ms"),
+            "upstream_status": d.get("upstream_status"),
         }
         for d in record.get("deliveries", [])
     ]
@@ -348,6 +405,7 @@ def build_case(record: dict[str, Any]) -> dict[str, Any]:
         "invariant_holds": bool(record.get("invariant_after", True)),
         "event_log": list(record.get("event_log") or []),
         "deliveries": deliveries,
+        "worker_restarted": bool(record.get("worker_restarted", False)),
     }
 
 
@@ -364,7 +422,16 @@ def render_case(case: dict[str, Any]) -> str:
             body = (d["response_body"] or "").strip()
             detail = f" response={body}" if body else ""
             err = f" error={d['error']}" if d.get("error") else ""
-            lines.append(f"{i}. HTTP {status} after {d['duration_ms']} ms{detail}{err}")
+            arrived = d.get("arrived_after_ms")
+            when = f"arrived +{arrived} ms" if arrived is not None else "arrival unknown"
+            lines.append(
+                f"{i}. [{when}] HTTP {status} after {d['duration_ms']} ms{detail}{err}"
+            )
+            upstream = d.get("upstream_status")
+            if upstream is not None and upstream != d["http_status"]:
+                lines.append(
+                    f"   the sender was answered HTTP {upstream} for this attempt"
+                )
             if d.get("signature_header"):
                 parses = d.get("body_parses_as_json")
                 lines.append(
@@ -393,6 +460,9 @@ def render_case(case: dict[str, Any]) -> str:
             lines.append(f"- {account}: {delta:+d}")
 
     lines += [
+        "",
+        "## Infrastructure during this window",
+        f"- worker process restarted: {'yes' if case.get('worker_restarted') else 'no'}",
         "",
         f"## Money conservation: {'holds' if case['invariant_holds'] else 'BROKEN'}",
         "",

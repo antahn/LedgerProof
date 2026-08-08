@@ -148,8 +148,11 @@ def _params(fault: Fault, index: int) -> dict:
         return {"n": 8 if index % 2 == 0 else 4}
     if fault is Fault.DELAY:
         # Repeat 0 is a benign in-tolerance delay; odd repeats land outside the
-        # tolerance window and must be refused.
-        return {"seconds": 0.25, "past_tolerance": index % 2 == 1}
+        # tolerance window and must be refused. 4s, not 0.25s: at a quarter
+        # second the delay is indistinguishable from ordinary jitter, and the
+        # Phase 5 pilot showed every model calling that case NONE — correctly,
+        # because nothing in the evidence said otherwise.
+        return {"seconds": 4.0, "past_tolerance": index % 2 == 1}
     if fault is Fault.STALE_TIMESTAMP:
         return {"age_s": 600 + 300 * (index % 2)}
     if fault is Fault.PARTIAL_WRITE:

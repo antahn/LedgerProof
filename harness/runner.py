@@ -232,7 +232,10 @@ def _posted_rows(db_url: str, event_ids: Sequence[str]) -> list[str]:
 
 
 def _delivery_records(
-    fault_plan: FaultPlan, results: Sequence[DeliveryResult]
+    fault_plan: FaultPlan,
+    results: Sequence[DeliveryResult],
+    *,
+    scenario_started: float,
 ) -> list[dict[str, object]]:
     """What was sent and what came back, per delivery.
 
@@ -261,6 +264,20 @@ def _delivery_records(
             "body": result.body,
             "error": result.error,
             "duration_ms": result.duration_ms,
+            # When this delivery hit the wire, relative to the event being
+            # generated. Two faults are invisible without it: DELAY (a long
+            # gap before a single otherwise-normal delivery) and
+            # CONCURRENT_DUPLICATE (deliveries that OVERLAP rather than
+            # stagger — the taxonomy names timing as the giveaway, and until
+            # now the evidence did not carry any).
+            "arrived_after_ms": max(0, int((result.started_at - scenario_started) * 1000)),
+            # What the SENDER saw. RESPOND_500 forces the proxy to answer 500
+            # upstream while still forwarding, so ingest records an ordinary
+            # 200 and the defining event appears nowhere unless recorded here.
+            # Stripe's own delivery log is exactly this field.
+            "upstream_status": (
+                500 if (fault_plan.force_500 and index == 0) else result.status_code
+            ),
         }
         if sent is not None:
             body = sent.body
@@ -342,6 +359,8 @@ def run_scenario(
     """
     started_at = datetime.now(UTC)
     t0 = time.perf_counter()
+    # Same clock the proxy stamps deliveries with, so offsets are comparable.
+    scenario_started = time.monotonic()
 
     fault_plan = plan(
         scenario.fault, scenario.fixtures, stack.webhook_secret, params=scenario.params
@@ -481,7 +500,9 @@ def run_scenario(
         "invariant_after": invariant_after.ok,
         "ledger_diff": ledger_diff,
         "duration_ms": int((time.perf_counter() - t0) * 1000),
-        "deliveries": _delivery_records(fault_plan, results),
+        "deliveries": _delivery_records(
+            fault_plan, results, scenario_started=scenario_started
+        ),
         # What ingest durably recorded, as an on-call engineer would query it.
         "event_log": event_log,
         "expected": {
