@@ -66,10 +66,9 @@ MUTATIONS = (
         edits=(
             Edit(
                 "src/ledgerproof/ingest/dedupe.py",
-                "        except psycopg.errors.UniqueViolation:",
-                "        except psycopg.errors.UniqueViolation:  # MUTATION M5\n"
-                "            return DedupeResult(new=True)\n"
-                "        except psycopg.errors.Error:",
+                "        object_id = money_movement_object_id(event)",
+                "        return DedupeResult(new=True)  # MUTATION M5\n"
+                "        object_id = money_movement_object_id(event)",
             ),
             # Absorbs the comma after `memo`: dropping only the two CONSTRAINT
             # lines leaves a trailing comma before `)` and the migration fails
@@ -131,7 +130,15 @@ def run(*argv: str, check: bool = True) -> subprocess.CompletedProcess:
 
 
 def tree_is_clean() -> bool:
-    return not run("git", "status", "--porcelain").stdout.strip()
+    """No modifications to TRACKED files.
+
+    Untracked files are ignored deliberately: this script's own output lands in
+    artifacts/, and counting it as dirt would make the post-revert assertion
+    fail on a successful run.
+    """
+    return not run(
+        "git", "status", "--porcelain", "--untracked-files=no"
+    ).stdout.strip()
 
 
 def apply(mutation: Mutation) -> None:

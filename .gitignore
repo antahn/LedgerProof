@@ -16,6 +16,12 @@ build/
 
 # artifacts/ IS committed — it is the evidence base for every claimed number.
 # Only secrets are excluded, never results.
+#
+# ...except process logs. artifacts/logs/ holds raw stdout from the ingest and
+# worker processes the harness starts; it is rewritten on every run and is a
+# debugging aid, not a result. Tracking it made every harness run dirty the
+# tree and bury real diffs in log churn.
+artifacts/logs/
 
 # OS / editor noise
 .DS_Store
