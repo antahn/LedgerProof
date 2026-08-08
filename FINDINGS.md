@@ -300,6 +300,45 @@ missing. Conservation proves internal consistency, not agreement with reality.
 Only the explicit per-cycle count catches it — which is why the suites assert
 it rather than leaning on the invariant.
 
+## Measured: backpressure and shedding — 2026-08-08
+
+Phase 4 is a measurement, not a bug hunt. Raw:
+[`artifacts/shed_loadtest.json`](artifacts/shed_loadtest.json).
+
+**Where each tier actually engages**, ramping pressure 0 → 1 over 200 samples.
+The configured threshold is the *intent*; the engagement point is the
+*behaviour*, and they differ because escalation requires two consecutive
+agreeing samples:
+
+| Tier | Threshold | Engages at | Releases at | Hysteresis band |
+|---|---|---|---|---|
+| `TEST_MODE` | 0.60 | **0.605** | 0.575 | 0.030 |
+| `GET` | 0.75 | **0.755** | 0.725 | 0.030 |
+| `POST` | 0.90 | **0.905** | 0.875 | 0.030 |
+| `CRITICAL` | 0.98 | **0.985** | 0.955 | 0.030 |
+
+Every tier releases *below* where it engaged. That gap is the anti-flap
+deadband, and it is the number worth reading: a shedder that engaged and
+released at the same pressure would oscillate, with every caller's retries
+synchronised to the oscillation. Recovery is also deliberately slower than
+escalation (5 calm samples vs 2 hot ones) — being slow to stop shedding costs a
+little availability, being quick to stop shedding costs the whole system.
+
+Across the ramp: 800 `TEST_MODE`, 1000 `GET`, 300 `POST` and 20 `CRITICAL`
+requests were shed — the money path lost 20 out of 1005, and only above 0.985
+pressure. **Dark launch dropped 0 while recording byte-identical verdicts**
+(800/1000/300/20), which is the property that makes a dark launch worth
+running. The shedder itself costs **~626,000 decisions/second**, comfortably
+cheaper than the work it protects.
+
+**The two limiter failure policies are asserted against each other** in one
+test: an unreachable limiter allows (fail open — a safety device must not take
+down what it guards), a contended lock denies (fail closed — that is not an
+outage, it is a concurrent writer mid-update, and allowing would be the exact
+double-admit the lock exists to prevent). A 32-thread race against one cold key
+confirms the burst is never exceeded — the same unguarded read-modify-write the
+chaos harness hunts in the ledger.
+
 ## Found while preparing to publish — 2026-08-07
 
 ### S1 (process) — A live signing secret reached a committed artifact
@@ -369,6 +408,30 @@ it rather than leaning on the invariant.
   mistaken for a passing one — but until it runs hosted, the 124.2-simulated-day
   measurement above stands on the **local** run recorded in
   `artifacts/phase3_clocks_run.txt`, not on CI.
+
+### Backpressure and observability (Phase 4)
+
+- **The load test measures the shedding policy, not this laptop's sockets.** It
+  drives the real `LoadShedder` against a synthetic pressure ramp rather than
+  real HTTP, so the engagement points describe the algorithm. A network-level
+  load test would mostly measure the test harness.
+- **`TEST_MODE` tier membership is set by an explicit header**
+  (`X-LedgerProof-Synthetic`), not by the event's `livemode` flag. Shedding must
+  decide before the body is read, and this project is test-mode-only by rule, so
+  `livemode` would classify every request identically. In a live deployment
+  that is where `livemode` would be read.
+- **Pressure is an injected callable, not a built-in signal.** Wiring it to real
+  queue depth is a deployment decision; nothing in the repo currently feeds it
+  in production, so the shedder is inert unless a caller supplies `pressure=`.
+- **Grafana panels are unverified against a live Grafana.** The dashboard JSON
+  parses and its queries are written against series the `/metrics` endpoint
+  really exports (asserted by a test), but no Grafana instance has rendered it
+  and no Prometheus has scraped the endpoint. The panels are a specification,
+  not a screenshot.
+- **Traces are exported nowhere by default.** `configure_tracing()` installs a
+  provider with no exporter unless one is passed, deliberately: an import that
+  opens a network connection is a landmine in tests. Cross-process propagation
+  is verified by an in-memory exporter test, not against a collector.
 
 ### Chaos harness (Phase 2)
 

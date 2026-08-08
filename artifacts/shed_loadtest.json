@@ -1,0 +1,51 @@
+{
+  "configured_thresholds": {
+    "TEST_MODE": 0.6,
+    "GET": 0.75,
+    "POST": 0.9,
+    "CRITICAL": 0.98
+  },
+  "escalate_after": 2,
+  "recover_after": 5,
+  "ramp_steps": 200,
+  "tier_mix_per_step": {
+    "TEST_MODE": 10,
+    "GET": 20,
+    "POST": 15,
+    "CRITICAL": 5
+  },
+  "engaged_at_pressure": {
+    "TEST_MODE": 0.605,
+    "GET": 0.755,
+    "POST": 0.905,
+    "CRITICAL": 0.985
+  },
+  "released_at_pressure": {
+    "CRITICAL": 0.955,
+    "POST": 0.875,
+    "GET": 0.725,
+    "TEST_MODE": 0.575
+  },
+  "served": {
+    "TEST_MODE": 1210,
+    "GET": 3020,
+    "POST": 2715,
+    "CRITICAL": 985
+  },
+  "dropped": {
+    "TEST_MODE": 800,
+    "GET": 1000,
+    "POST": 300,
+    "CRITICAL": 20
+  },
+  "dark_launch": {
+    "actually_dropped": 0,
+    "would_have_dropped": {
+      "CRITICAL": 20,
+      "GET": 1000,
+      "POST": 300,
+      "TEST_MODE": 800
+    }
+  },
+  "decisions_per_second": 626503
+}

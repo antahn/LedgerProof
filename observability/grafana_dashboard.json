@@ -1,0 +1,190 @@
+{
+  "title": "LedgerProof — money conservation and backpressure",
+  "uid": "ledgerproof-main",
+  "schemaVersion": 39,
+  "editable": true,
+  "refresh": "10s",
+  "time": { "from": "now-1h", "to": "now" },
+  "tags": ["ledgerproof", "payments", "ledger"],
+  "templating": {
+    "list": [
+      {
+        "name": "datasource",
+        "type": "datasource",
+        "query": "prometheus",
+        "current": { "text": "Prometheus", "value": "Prometheus" }
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "title": "Money conservation",
+      "description": "0 means the ledger created or destroyed money. This is the project's thesis as an operational signal: if this panel is red, nothing else on this board matters.",
+      "type": "stat",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "h": 5, "w": 6, "x": 0, "y": 0 },
+      "targets": [
+        { "expr": "min(ledgerproof_invariant_ok)", "legendFormat": "conserving", "refId": "A" }
+      ],
+      "options": { "colorMode": "background", "graphMode": "none", "textMode": "auto" },
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [
+            { "type": "value", "options": { "0": { "text": "BROKEN", "color": "red", "index": 0 } } },
+            { "type": "value", "options": { "1": { "text": "BALANCED", "color": "green", "index": 1 } } }
+          ],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "red", "value": null },
+              { "color": "green", "value": 1 }
+            ]
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 2,
+      "title": "Conservation gap (minor units, by currency)",
+      "description": "Signed debit-normal minus credit-normal. Any nonzero value is money appearing from nothing or vanishing into it.",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "h": 5, "w": 9, "x": 6, "y": 0 },
+      "targets": [
+        {
+          "expr": "ledgerproof_invariant_difference_minor",
+          "legendFormat": "{{currency}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "custom": { "drawStyle": "line", "fillOpacity": 10 }, "unit": "none" },
+        "overrides": []
+      }
+    },
+    {
+      "id": 3,
+      "title": "Correctness breaks by kind",
+      "description": "Breaks reported by the chaos harness and the reconciler. Steady state is a flat line at zero.",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "h": 5, "w": 9, "x": 15, "y": 0 },
+      "targets": [
+        {
+          "expr": "sum by (kind) (increase(ledgerproof_breaks_total[5m]))",
+          "legendFormat": "{{kind}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "custom": { "drawStyle": "bars", "fillOpacity": 60 } },
+        "overrides": []
+      }
+    },
+    {
+      "id": 4,
+      "title": "Ingest latency (p50 / p95)",
+      "description": "What Stripe actually waits for. Ingest must answer before Stripe's timeout, so the useful resolution is milliseconds.",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "h": 6, "w": 12, "x": 0, "y": 5 },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.50, sum by (le) (rate(ledgerproof_ingest_seconds_bucket[5m])))",
+          "legendFormat": "p50",
+          "refId": "A"
+        },
+        {
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(ledgerproof_ingest_seconds_bucket[5m])))",
+          "legendFormat": "p95",
+          "refId": "B"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "s", "custom": { "drawStyle": "line", "fillOpacity": 5 } },
+        "overrides": []
+      }
+    },
+    {
+      "id": 5,
+      "title": "Shed by tier",
+      "description": "Shed-first order is TEST_MODE, GET, POST, CRITICAL. CRITICAL appearing here means the money path is being dropped — page someone. The 'enforced' label separates real shedding from dark-launch accounting.",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "h": 6, "w": 12, "x": 12, "y": 5 },
+      "targets": [
+        {
+          "expr": "sum by (tier, enforced) (rate(ledgerproof_shed_total[5m]))",
+          "legendFormat": "{{tier}} (enforced={{enforced}})",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "custom": { "drawStyle": "line", "stacking": { "mode": "normal" }, "fillOpacity": 30 } },
+        "overrides": [
+          {
+            "matcher": { "id": "byRegexp", "options": "CRITICAL.*" },
+            "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "red" } }]
+          }
+        ]
+      }
+    },
+    {
+      "id": 6,
+      "title": "Queue depth",
+      "description": "Messages waiting for the worker. Sustained growth is the pressure signal the shedder acts on.",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "h": 6, "w": 8, "x": 0, "y": 11 },
+      "targets": [
+        { "expr": "ledgerproof_queue_depth", "legendFormat": "depth", "refId": "A" }
+      ],
+      "fieldConfig": {
+        "defaults": { "custom": { "drawStyle": "line", "fillOpacity": 20 } },
+        "overrides": []
+      }
+    },
+    {
+      "id": 7,
+      "title": "Idempotent replay rate",
+      "description": "Stripe responses carrying Idempotent-Replayed: true. A rising rate means we are retrying more, which is a leading indicator of trouble upstream.",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "h": 6, "w": 8, "x": 8, "y": 11 },
+      "targets": [
+        {
+          "expr": "rate(ledgerproof_idempotent_replays_total[5m])",
+          "legendFormat": "replays/s",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "reqps" }, "overrides": [] }
+    },
+    {
+      "id": 8,
+      "title": "Rate limiter decisions",
+      "description": "Includes limiter_error_fail_open. A limiter that fails open is allowing everything, which looks identical to a healthy limiter until the traffic that needed limiting arrives — so it is graphed rather than merely logged.",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "h": 6, "w": 8, "x": 16, "y": 11 },
+      "targets": [
+        {
+          "expr": "sum by (reason) (rate(ledgerproof_rate_limited_total[5m]))",
+          "legendFormat": "{{reason}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "custom": { "drawStyle": "bars", "fillOpacity": 50 } },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "limiter_error_fail_open" },
+            "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "orange" } }]
+          }
+        ]
+      }
+    }
+  ]
+}

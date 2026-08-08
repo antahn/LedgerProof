@@ -29,6 +29,12 @@ from celery import Celery
 
 from ledgerproof.config import get_settings
 from ledgerproof.ingest.queue import PROCESS_EVENT_TASK
+from ledgerproof.observability import (
+    attach_context,
+    extract_trace_context,
+    span,
+    strip_trace_context,
+)
 from ledgerproof.worker import handlers
 
 logger = logging.getLogger(__name__)
@@ -50,6 +56,11 @@ celery_app.conf.update(
 @celery_app.task(name=PROCESS_EVENT_TASK, bind=True, max_retries=5)
 def process_event(self, event: dict) -> str:
     settings = get_settings()
+    # Re-attach to the ingest span that enqueued this, then hand the handler
+    # the event exactly as Stripe sent it — transport metadata must never
+    # reach mapping, which would see an unexpected top-level key.
+    parent = extract_trace_context(event)
+    event = strip_trace_context(event)
     client = None
     if settings.stripe_secret_key:
         # Imported lazily so the worker module stays importable without egress
@@ -58,9 +69,15 @@ def process_event(self, event: dict) -> str:
 
         client = StripeEgressClient(settings.stripe_secret_key)
     try:
-        return handlers.handle_event(
-            event, db_url=settings.app_database_url, client=client
-        )
+        with attach_context(parent), span(
+            "worker.process_event",
+            **{"lp.event_type": event.get("type"), "lp.event_id": event.get("id")},
+        ) as current:
+            outcome = handlers.handle_event(
+                event, db_url=settings.app_database_url, client=client
+            )
+            current.set_attribute("lp.outcome", outcome)
+            return outcome
     except Exception as exc:
         if self.request.retries < self.max_retries:
             # Transient failure (DB down, Stripe fetch error): retry with

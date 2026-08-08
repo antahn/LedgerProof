@@ -1,10 +1,10 @@
  
  -------------- chaos8103@Anthony_Ahn v5.6.3 (recovery)
 --- ***** ----- 
--- ******* ---- Windows-11-10.0.26200-SP0 2026-08-07 12:06:35
+-- ******* ---- Windows-11-10.0.26200-SP0 2026-08-08 10:43:10
 - *** --- * --- 
 - ** ---------- [config]
-- ** ---------- .> app:         ledgerproof:0x1ebf822e480
+- ** ---------- .> app:         ledgerproof:0x238f160f980
 - ** ---------- .> transport:   redis://localhost:6379/1
 - ** ---------- .> results:     disabled://
 - *** --- * --- .> concurrency: 20 (solo)
@@ -17,15 +17,15 @@
 [tasks]
   . ledgerproof.process_event
 
-[2026-08-07 12:06:35,320: INFO/MainProcess] Connected to redis://localhost:6379/1
-[2026-08-07 12:06:35,331: INFO/MainProcess] mingle: searching for neighbors
-[2026-08-07 12:06:36,379: INFO/MainProcess] mingle: all alone
-[2026-08-07 12:06:36,461: INFO/MainProcess] chaos8103@Anthony_Ahn ready.
-[2026-08-07 12:06:37,088: INFO/MainProcess] Task ledgerproof.process_event[5c609de6-2956-4090-bb6e-135115f5d228] received
-[2026-08-07 12:06:37,190: INFO/MainProcess] Task ledgerproof.process_event[5c609de6-2956-4090-bb6e-135115f5d228] succeeded in 0.09399999998277053s: 'posted'
-[2026-08-07 12:06:37,724: INFO/MainProcess] Task ledgerproof.process_event[cf13e109-3af4-402a-ab70-c42935f9ad7e] received
-[2026-08-07 12:06:37,796: INFO/MainProcess] Task ledgerproof.process_event[cf13e109-3af4-402a-ab70-c42935f9ad7e] succeeded in 0.0779999999795109s: 'posted'
-[2026-08-07 12:06:38,863: INFO/MainProcess] Task ledgerproof.process_event[23c03d60-3e06-4b7d-a42b-9e8c1814785f] received
-[2026-08-07 12:06:38,946: INFO/MainProcess] Task ledgerproof.process_event[23c03d60-3e06-4b7d-a42b-9e8c1814785f] succeeded in 0.09400000001187436s: 'posted'
-[2026-08-07 12:06:40,090: INFO/MainProcess] Task ledgerproof.process_event[25e78a12-4687-4225-8b17-8f5ab3c51dcf] received
-[2026-08-07 12:06:40,211: INFO/MainProcess] Task ledgerproof.process_event[25e78a12-4687-4225-8b17-8f5ab3c51dcf] succeeded in 0.10999999998603016s: 'posted'
+[2026-08-08 10:43:10,777: INFO/MainProcess] Connected to redis://localhost:6379/1
+[2026-08-08 10:43:10,804: INFO/MainProcess] mingle: searching for neighbors
+[2026-08-08 10:43:11,875: INFO/MainProcess] mingle: all alone
+[2026-08-08 10:43:11,940: INFO/MainProcess] chaos8103@Anthony_Ahn ready.
+[2026-08-08 10:43:12,446: INFO/MainProcess] Task ledgerproof.process_event[745eea5e-072d-4349-b9e3-fdd9884ad760] received
+[2026-08-08 10:43:12,532: INFO/MainProcess] Task ledgerproof.process_event[745eea5e-072d-4349-b9e3-fdd9884ad760] succeeded in 0.07800000003771856s: 'posted'
+[2026-08-08 10:43:13,128: INFO/MainProcess] Task ledgerproof.process_event[2b06288a-df41-4343-b94f-bf66f07b3921] received
+[2026-08-08 10:43:13,212: INFO/MainProcess] Task ledgerproof.process_event[2b06288a-df41-4343-b94f-bf66f07b3921] succeeded in 0.0779999999795109s: 'posted'
+[2026-08-08 10:43:14,657: INFO/MainProcess] Task ledgerproof.process_event[5c4916d1-eba5-47d4-a4c3-0c6b163665a6] received
+[2026-08-08 10:43:14,778: INFO/MainProcess] Task ledgerproof.process_event[5c4916d1-eba5-47d4-a4c3-0c6b163665a6] succeeded in 0.125s: 'posted'
+[2026-08-08 10:43:16,128: INFO/MainProcess] Task ledgerproof.process_event[81cc7171-fcbf-4e2f-8960-b6c07adb3097] received
+[2026-08-08 10:43:16,230: INFO/MainProcess] Task ledgerproof.process_event[81cc7171-fcbf-4e2f-8960-b6c07adb3097] succeeded in 0.10899999999674037s: 'posted'

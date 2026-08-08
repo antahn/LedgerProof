@@ -20,13 +20,32 @@ enqueue can therefore never hide behind a 200 'duplicate'.
 from __future__ import annotations
 
 import json
+import time
+from collections.abc import Callable
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, Response
 from fastapi.responses import JSONResponse
 
 from ledgerproof.ingest.dedupe import Deduper
 from ledgerproof.ingest.queue import EnqueueFn
+from ledgerproof.limits.gcra import GCRALimiter
+from ledgerproof.limits.shed import LoadShedder, Tier
+from ledgerproof.observability import (
+    EVENTS,
+    INGEST_LATENCY,
+    RATE_LIMITED,
+    SHED,
+    metrics_payload,
+    span,
+)
 from ledgerproof.stripe_io.signature import SignatureVerificationError, verify
+
+# Marks synthetic/exploratory traffic so it can be shed first (see classify()).
+SYNTHETIC_HEADER = "X-LedgerProof-Synthetic"
+
+# Bounded label values: a metric labelled with raw status codes from a hostile
+# caller is an unbounded-cardinality incident waiting to happen.
+_OUTCOMES = {200: "accepted", 400: "rejected", 429: "rate_limited", 503: "shed", 500: "error"}
 
 # Stripe events are a few KiB; anything larger is not a webhook we subscribed
 # to. Rejected BEFORE signature verification so unauthenticated megabyte POSTs
@@ -42,8 +61,93 @@ MAX_BODY_BYTES = 512 * 1024
 NON_TERMINAL_STATUSES = frozenset({"received", "queued"})
 
 
-def create_app(*, webhook_secret: str, deduper: Deduper, enqueue: EnqueueFn) -> FastAPI:
+def classify(request: Request) -> Tier:
+    """Which shedding tier this request belongs to.
+
+    The money path is CRITICAL and protected longest. Synthetic traffic is
+    marked by an explicit header rather than inferred from the event's
+    `livemode` flag: shedding must decide BEFORE the body is read, and this
+    project is test-mode-only by rule, so livemode would classify everything
+    identically. In a live deployment this is where livemode would be read.
+    """
+    if request.headers.get(SYNTHETIC_HEADER):
+        return Tier.TEST_MODE
+    if request.method == "GET":
+        return Tier.GET
+    if request.url.path == "/webhook":
+        return Tier.CRITICAL
+    return Tier.POST
+
+
+def create_app(
+    *,
+    webhook_secret: str,
+    deduper: Deduper,
+    enqueue: EnqueueFn,
+    limiter: GCRALimiter | None = None,
+    shedder: LoadShedder | None = None,
+    pressure: Callable[[], float] | None = None,
+) -> FastAPI:
+    """Build the ingress app.
+
+    `limiter` and `shedder` are optional: absent, the endpoint behaves exactly
+    as it did before Phase 4, which keeps backpressure a deployment decision
+    rather than a hard dependency of the webhook contract.
+    """
     app = FastAPI()
+
+    @app.get("/metrics")
+    async def metrics() -> Response:
+        payload, content_type = metrics_payload()
+        return Response(content=payload, media_type=content_type)
+
+    @app.middleware("http")
+    async def backpressure(request: Request, call_next):
+        # Shed first, then limit: shedding is a cheap local decision, while the
+        # limiter costs a Redis round trip. Doing it the other way round spends
+        # the expensive check on traffic that is about to be dropped anyway.
+        tier = classify(request)
+        if shedder is not None:
+            if pressure is not None:
+                shedder.observe(pressure())
+            decision = shedder.should_shed(tier)
+            if decision.shed or (not decision.enforced and decision.reason == "shed_by_tier"):
+                # Counted in dark launch too: the point is to learn what
+                # enforcement would have cost before it can cost it.
+                SHED.labels(tier=tier.name, enforced=str(decision.enforced).lower()).inc()
+            if decision.shed:
+                return JSONResponse(
+                    {"error": "shedding load", "tier": tier.name},
+                    status_code=503,
+                    headers={"Retry-After": "5"},
+                )
+
+        if limiter is not None:
+            verdict = limiter.check(f"{tier.name}:{request.client.host if request.client else '-'}")
+            if verdict.reason:
+                RATE_LIMITED.labels(reason=verdict.reason).inc()
+            if not verdict.allowed:
+                return JSONResponse(
+                    {"error": "rate limited", "reason": verdict.reason},
+                    status_code=429,
+                    headers=verdict.headers,
+                )
+
+        if request.url.path != "/webhook":
+            return await call_next(request)
+
+        # The span that a worker span will later attach to, and the latency
+        # panel's source. Measured around the whole request so it reflects what
+        # Stripe actually waits for.
+        started = time.perf_counter()
+        with span("ingest.webhook", **{"lp.tier": tier.name}) as current:
+            response = await call_next(request)
+            current.set_attribute("http.status_code", response.status_code)
+        elapsed = time.perf_counter() - started
+        outcome = _OUTCOMES.get(response.status_code, str(response.status_code))
+        INGEST_LATENCY.labels(outcome=outcome).observe(elapsed)
+        EVENTS.labels(outcome=outcome).inc()
+        return response
 
     @app.post("/webhook")
     async def webhook(request: Request) -> JSONResponse:

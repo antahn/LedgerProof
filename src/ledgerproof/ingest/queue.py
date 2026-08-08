@@ -10,6 +10,8 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import TYPE_CHECKING
 
+from ledgerproof.observability import inject_trace_context
+
 if TYPE_CHECKING:
     from celery import Celery
 
@@ -31,6 +33,9 @@ def make_celery_enqueue(celery_app: Celery) -> EnqueueFn:
     """
 
     def enqueue(event: dict) -> None:
-        celery_app.send_task(PROCESS_EVENT_TASK, args=[event])
+        # The trace context rides inside the payload: Redis carries no headers,
+        # and without it the worker's spans are orphans in a different trace.
+        # The worker strips it before any handler sees the event.
+        celery_app.send_task(PROCESS_EVENT_TASK, args=[inject_trace_context(event)])
 
     return enqueue
