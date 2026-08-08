@@ -1,0 +1,522 @@
+{
+  "generated_at": "2026-08-08T20:06:13.200306+00:00",
+  "cases": 170,
+  "classification_cases": 126,
+  "repair_cases": 44,
+  "cap_usd": 20.0,
+  "spent_usd": 17.777,
+  "calls": 1020,
+  "runs": {
+    "claude-haiku-4-5@default": {
+      "n": 170,
+      "answered": 170,
+      "refused": 0,
+      "accuracy@1": 0.8529,
+      "accuracy@3": 0.8706,
+      "over_repair_rate": 0.0,
+      "repair_proposed": 8,
+      "repair_balanced": 7,
+      "repair_stratum_n": 44,
+      "false_repair_rate": 0.1591,
+      "repair_restores_expected_balances": 0.0,
+      "repair_fixable_n": 36,
+      "unfixable_n": 8,
+      "claimed_to_fix_the_unfixable_rate": 1.0,
+      "mean_confidence": 0.9278,
+      "latency_p50_s": 0.0,
+      "latency_p95_s": 0.0,
+      "cost_usd_total": 0.8321,
+      "cost_usd_per_scenario": 0.004894,
+      "accuracy_by_fault": {
+        "CONCURRENT_DUPLICATE": 0.95,
+        "DELAY": 0.5,
+        "DOWNGRADE_SCHEME": 1.0,
+        "DROP": 1.0,
+        "DUPLICATE": 1.0,
+        "DUPLICATE_OBJECT": 0.75,
+        "NONE": 0.8889,
+        "PARTIAL_WRITE": 1.0,
+        "REORDER": 0.125,
+        "RESPOND_500": 1.0,
+        "SLOW_LORIS": 0.2,
+        "STALE_TIMESTAMP": 1.0,
+        "TAMPER_BODY": 1.0,
+        "TRUNCATE_BODY": 1.0
+      },
+      "confusion": {
+        "CONCURRENT_DUPLICATE": {
+          "CONCURRENT_DUPLICATE": 19,
+          "DUPLICATE": 1
+        },
+        "DELAY": {
+          "DELAY": 5,
+          "NONE": 2,
+          "STALE_TIMESTAMP": 3
+        },
+        "DOWNGRADE_SCHEME": {
+          "DOWNGRADE_SCHEME": 10
+        },
+        "DROP": {
+          "DROP": 8
+        },
+        "DUPLICATE": {
+          "DUPLICATE": 20
+        },
+        "DUPLICATE_OBJECT": {
+          "DUPLICATE": 2,
+          "DUPLICATE_OBJECT": 6
+        },
+        "NONE": {
+          "NONE": 16,
+          "PARTIAL_WRITE": 2
+        },
+        "PARTIAL_WRITE": {
+          "PARTIAL_WRITE": 8
+        },
+        "REORDER": {
+          "DUPLICATE_OBJECT": 4,
+          "NONE": 3,
+          "REORDER": 1
+        },
+        "RESPOND_500": {
+          "RESPOND_500": 20
+        },
+        "SLOW_LORIS": {
+          "NONE": 8,
+          "SLOW_LORIS": 2
+        },
+        "STALE_TIMESTAMP": {
+          "STALE_TIMESTAMP": 10
+        },
+        "TAMPER_BODY": {
+          "TAMPER_BODY": 10
+        },
+        "TRUNCATE_BODY": {
+          "TRUNCATE_BODY": 10
+        }
+      }
+    },
+    "claude-opus-5@default": {
+      "n": 170,
+      "answered": 170,
+      "refused": 0,
+      "accuracy@1": 0.9353,
+      "accuracy@3": 1.0,
+      "over_repair_rate": 0.0,
+      "repair_proposed": 0,
+      "repair_balanced": 0,
+      "repair_stratum_n": 44,
+      "false_repair_rate": 0.0,
+      "repair_restores_expected_balances": 0.0,
+      "repair_fixable_n": 36,
+      "unfixable_n": 8,
+      "claimed_to_fix_the_unfixable_rate": 0.0,
+      "mean_confidence": 0.8462,
+      "latency_p50_s": 0.0,
+      "latency_p95_s": 0.0,
+      "cost_usd_total": 5.281,
+      "cost_usd_per_scenario": 0.031065,
+      "accuracy_by_fault": {
+        "CONCURRENT_DUPLICATE": 1.0,
+        "DELAY": 0.7,
+        "DOWNGRADE_SCHEME": 1.0,
+        "DROP": 1.0,
+        "DUPLICATE": 1.0,
+        "DUPLICATE_OBJECT": 1.0,
+        "NONE": 0.5556,
+        "PARTIAL_WRITE": 1.0,
+        "REORDER": 1.0,
+        "RESPOND_500": 1.0,
+        "SLOW_LORIS": 1.0,
+        "STALE_TIMESTAMP": 1.0,
+        "TAMPER_BODY": 1.0,
+        "TRUNCATE_BODY": 1.0
+      },
+      "confusion": {
+        "CONCURRENT_DUPLICATE": {
+          "CONCURRENT_DUPLICATE": 20
+        },
+        "DELAY": {
+          "DELAY": 7,
+          "STALE_TIMESTAMP": 3
+        },
+        "DOWNGRADE_SCHEME": {
+          "DOWNGRADE_SCHEME": 10
+        },
+        "DROP": {
+          "DROP": 8
+        },
+        "DUPLICATE": {
+          "DUPLICATE": 20
+        },
+        "DUPLICATE_OBJECT": {
+          "DUPLICATE_OBJECT": 8
+        },
+        "NONE": {
+          "NONE": 10,
+          "PARTIAL_WRITE": 8
+        },
+        "PARTIAL_WRITE": {
+          "PARTIAL_WRITE": 8
+        },
+        "REORDER": {
+          "REORDER": 8
+        },
+        "RESPOND_500": {
+          "RESPOND_500": 20
+        },
+        "SLOW_LORIS": {
+          "SLOW_LORIS": 10
+        },
+        "STALE_TIMESTAMP": {
+          "STALE_TIMESTAMP": 10
+        },
+        "TAMPER_BODY": {
+          "TAMPER_BODY": 10
+        },
+        "TRUNCATE_BODY": {
+          "TRUNCATE_BODY": 10
+        }
+      }
+    },
+    "claude-sonnet-5@default": {
+      "n": 170,
+      "answered": 162,
+      "refused": 0,
+      "accuracy@1": 0.8824,
+      "accuracy@3": 0.9529,
+      "over_repair_rate": 0.0,
+      "repair_proposed": 0,
+      "repair_balanced": 0,
+      "repair_stratum_n": 36,
+      "false_repair_rate": 0.0,
+      "repair_restores_expected_balances": 0.0,
+      "repair_fixable_n": 36,
+      "mean_confidence": 0.7857,
+      "latency_p50_s": 0.0,
+      "latency_p95_s": 0.0,
+      "cost_usd_total": 1.6806,
+      "cost_usd_per_scenario": 0.009886,
+      "accuracy_by_fault": {
+        "CONCURRENT_DUPLICATE": 1.0,
+        "DELAY": 0.6,
+        "DOWNGRADE_SCHEME": 1.0,
+        "DROP": 1.0,
+        "DUPLICATE": 1.0,
+        "DUPLICATE_OBJECT": 0.875,
+        "NONE": 0.5556,
+        "PARTIAL_WRITE": 0.875,
+        "REORDER": 0.25,
+        "RESPOND_500": 1.0,
+        "SLOW_LORIS": 1.0,
+        "STALE_TIMESTAMP": 1.0,
+        "TAMPER_BODY": 1.0,
+        "TRUNCATE_BODY": 1.0
+      },
+      "confusion": {
+        "CONCURRENT_DUPLICATE": {
+          "CONCURRENT_DUPLICATE": 20
+        },
+        "DELAY": {
+          "DELAY": 6,
+          "NONE": 1,
+          "STALE_TIMESTAMP": 3
+        },
+        "DOWNGRADE_SCHEME": {
+          "DOWNGRADE_SCHEME": 10
+        },
+        "DROP": {
+          "DROP": 8
+        },
+        "DUPLICATE": {
+          "DUPLICATE": 20
+        },
+        "DUPLICATE_OBJECT": {
+          "DUPLICATE": 1,
+          "DUPLICATE_OBJECT": 7
+        },
+        "NONE": {
+          "NONE": 10
+        },
+        "PARTIAL_WRITE": {
+          "DUPLICATE": 1,
+          "PARTIAL_WRITE": 7
+        },
+        "REORDER": {
+          "NONE": 6,
+          "REORDER": 2
+        },
+        "RESPOND_500": {
+          "RESPOND_500": 20
+        },
+        "SLOW_LORIS": {
+          "SLOW_LORIS": 10
+        },
+        "STALE_TIMESTAMP": {
+          "STALE_TIMESTAMP": 10
+        },
+        "TAMPER_BODY": {
+          "TAMPER_BODY": 10
+        },
+        "TRUNCATE_BODY": {
+          "TRUNCATE_BODY": 10
+        }
+      }
+    },
+    "claude-sonnet-5@high": {
+      "n": 170,
+      "answered": 162,
+      "refused": 0,
+      "accuracy@1": 0.8706,
+      "accuracy@3": 0.9353,
+      "over_repair_rate": 0.0,
+      "repair_proposed": 0,
+      "repair_balanced": 0,
+      "repair_stratum_n": 36,
+      "false_repair_rate": 0.0,
+      "repair_restores_expected_balances": 0.0,
+      "repair_fixable_n": 36,
+      "mean_confidence": 0.7814,
+      "latency_p50_s": 0.0,
+      "latency_p95_s": 0.0,
+      "cost_usd_total": 3.7049,
+      "cost_usd_per_scenario": 0.021793,
+      "accuracy_by_fault": {
+        "CONCURRENT_DUPLICATE": 1.0,
+        "DELAY": 0.5,
+        "DOWNGRADE_SCHEME": 1.0,
+        "DROP": 1.0,
+        "DUPLICATE": 1.0,
+        "DUPLICATE_OBJECT": 0.875,
+        "NONE": 0.5556,
+        "PARTIAL_WRITE": 1.0,
+        "REORDER": 0.0,
+        "RESPOND_500": 1.0,
+        "SLOW_LORIS": 1.0,
+        "STALE_TIMESTAMP": 1.0,
+        "TAMPER_BODY": 1.0,
+        "TRUNCATE_BODY": 1.0
+      },
+      "confusion": {
+        "CONCURRENT_DUPLICATE": {
+          "CONCURRENT_DUPLICATE": 20
+        },
+        "DELAY": {
+          "DELAY": 5,
+          "NONE": 2,
+          "STALE_TIMESTAMP": 3
+        },
+        "DOWNGRADE_SCHEME": {
+          "DOWNGRADE_SCHEME": 10
+        },
+        "DROP": {
+          "DROP": 8
+        },
+        "DUPLICATE": {
+          "DUPLICATE": 20
+        },
+        "DUPLICATE_OBJECT": {
+          "DUPLICATE": 1,
+          "DUPLICATE_OBJECT": 7
+        },
+        "NONE": {
+          "NONE": 10
+        },
+        "PARTIAL_WRITE": {
+          "PARTIAL_WRITE": 8
+        },
+        "REORDER": {
+          "NONE": 8
+        },
+        "RESPOND_500": {
+          "RESPOND_500": 20
+        },
+        "SLOW_LORIS": {
+          "SLOW_LORIS": 10
+        },
+        "STALE_TIMESTAMP": {
+          "STALE_TIMESTAMP": 10
+        },
+        "TAMPER_BODY": {
+          "TAMPER_BODY": 10
+        },
+        "TRUNCATE_BODY": {
+          "TRUNCATE_BODY": 10
+        }
+      }
+    },
+    "claude-sonnet-5@low": {
+      "n": 170,
+      "answered": 168,
+      "refused": 0,
+      "accuracy@1": 0.8,
+      "accuracy@3": 0.9647,
+      "over_repair_rate": 0.0,
+      "repair_proposed": 8,
+      "repair_balanced": 8,
+      "repair_stratum_n": 44,
+      "false_repair_rate": 0.1818,
+      "repair_restores_expected_balances": 0.0,
+      "repair_fixable_n": 36,
+      "unfixable_n": 8,
+      "claimed_to_fix_the_unfixable_rate": 1.0,
+      "mean_confidence": 0.7269,
+      "latency_p50_s": 0.0,
+      "latency_p95_s": 0.0,
+      "cost_usd_total": 2.8685,
+      "cost_usd_per_scenario": 0.016874,
+      "accuracy_by_fault": {
+        "CONCURRENT_DUPLICATE": 1.0,
+        "DELAY": 0.2,
+        "DOWNGRADE_SCHEME": 1.0,
+        "DROP": 1.0,
+        "DUPLICATE": 1.0,
+        "DUPLICATE_OBJECT": 0.125,
+        "NONE": 0.5556,
+        "PARTIAL_WRITE": 0.875,
+        "REORDER": 0.0,
+        "RESPOND_500": 1.0,
+        "SLOW_LORIS": 1.0,
+        "STALE_TIMESTAMP": 1.0,
+        "TAMPER_BODY": 1.0,
+        "TRUNCATE_BODY": 0.8
+      },
+      "confusion": {
+        "CONCURRENT_DUPLICATE": {
+          "CONCURRENT_DUPLICATE": 20
+        },
+        "DELAY": {
+          "DELAY": 2,
+          "NONE": 5,
+          "STALE_TIMESTAMP": 3
+        },
+        "DOWNGRADE_SCHEME": {
+          "DOWNGRADE_SCHEME": 10
+        },
+        "DROP": {
+          "DROP": 8
+        },
+        "DUPLICATE": {
+          "DUPLICATE": 20
+        },
+        "DUPLICATE_OBJECT": {
+          "DUPLICATE": 7,
+          "DUPLICATE_OBJECT": 1
+        },
+        "NONE": {
+          "NONE": 10,
+          "PARTIAL_WRITE": 8
+        },
+        "PARTIAL_WRITE": {
+          "DUPLICATE": 1,
+          "PARTIAL_WRITE": 7
+        },
+        "REORDER": {
+          "NONE": 8
+        },
+        "RESPOND_500": {
+          "RESPOND_500": 20
+        },
+        "SLOW_LORIS": {
+          "SLOW_LORIS": 10
+        },
+        "STALE_TIMESTAMP": {
+          "STALE_TIMESTAMP": 10
+        },
+        "TAMPER_BODY": {
+          "TAMPER_BODY": 10
+        },
+        "TRUNCATE_BODY": {
+          "TRUNCATE_BODY": 8
+        }
+      }
+    },
+    "claude-sonnet-5@medium": {
+      "n": 170,
+      "answered": 160,
+      "refused": 0,
+      "accuracy@1": 0.8,
+      "accuracy@3": 0.9235,
+      "over_repair_rate": 0.0,
+      "repair_proposed": 1,
+      "repair_balanced": 1,
+      "repair_stratum_n": 38,
+      "false_repair_rate": 0.0263,
+      "repair_restores_expected_balances": 0.0,
+      "repair_fixable_n": 36,
+      "unfixable_n": 2,
+      "claimed_to_fix_the_unfixable_rate": 0.5,
+      "mean_confidence": 0.7536,
+      "latency_p50_s": 0.0,
+      "latency_p95_s": 0.0,
+      "cost_usd_total": 3.4099,
+      "cost_usd_per_scenario": 0.020058,
+      "accuracy_by_fault": {
+        "CONCURRENT_DUPLICATE": 1.0,
+        "DELAY": 0.1,
+        "DOWNGRADE_SCHEME": 1.0,
+        "DROP": 1.0,
+        "DUPLICATE": 1.0,
+        "DUPLICATE_OBJECT": 0.625,
+        "NONE": 0.5556,
+        "PARTIAL_WRITE": 0.75,
+        "REORDER": 0.0,
+        "RESPOND_500": 1.0,
+        "SLOW_LORIS": 1.0,
+        "STALE_TIMESTAMP": 1.0,
+        "TAMPER_BODY": 1.0,
+        "TRUNCATE_BODY": 0.6
+      },
+      "confusion": {
+        "CONCURRENT_DUPLICATE": {
+          "CONCURRENT_DUPLICATE": 20
+        },
+        "DELAY": {
+          "DELAY": 1,
+          "NONE": 6,
+          "STALE_TIMESTAMP": 3
+        },
+        "DOWNGRADE_SCHEME": {
+          "DOWNGRADE_SCHEME": 10
+        },
+        "DROP": {
+          "DROP": 8
+        },
+        "DUPLICATE": {
+          "DUPLICATE": 20
+        },
+        "DUPLICATE_OBJECT": {
+          "DUPLICATE": 3,
+          "DUPLICATE_OBJECT": 5
+        },
+        "NONE": {
+          "NONE": 10,
+          "PARTIAL_WRITE": 2
+        },
+        "PARTIAL_WRITE": {
+          "DUPLICATE": 2,
+          "PARTIAL_WRITE": 6
+        },
+        "REORDER": {
+          "NONE": 8
+        },
+        "RESPOND_500": {
+          "RESPOND_500": 20
+        },
+        "SLOW_LORIS": {
+          "SLOW_LORIS": 10
+        },
+        "STALE_TIMESTAMP": {
+          "STALE_TIMESTAMP": 10
+        },
+        "TAMPER_BODY": {
+          "TAMPER_BODY": 10
+        },
+        "TRUNCATE_BODY": {
+          "TRUNCATE_BODY": 6
+        }
+      }
+    }
+  },
+  "artifact": "sweep_20260808T194521Z.jsonl"
+}

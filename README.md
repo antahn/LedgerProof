@@ -21,6 +21,14 @@ delivery to find the bugs the happy path hides.
 > [FINDINGS.md](FINDINGS.md). Every number here traces to a run in
 > `artifacts/`.
 
+> **What the benchmark found:** the harness labels its own scenarios, so 315
+> of them became a fault-classification benchmark for free. Across 1,020
+> batched calls, **Sonnet 5 matched Opus 5's perfect `acc@3` at 32% of the
+> cost**; raising Sonnet's effort setting made it *worse and more expensive*
+> every time; and **no model produced a single correct repair** across 264
+> damaged ledgers, while the cheapest configurations confidently proposed
+> fixes for damage that provably cannot be repaired.
+
 ## Architecture
 
 ```

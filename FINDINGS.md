@@ -339,6 +339,109 @@ double-admit the lock exists to prevent). A 32-thread race against one cold key
 confirms the burst is never exceeded — the same unguarded read-modify-write the
 chaos harness hunts in the ledger.
 
+## Measured: the model frontier — 2026-08-08
+
+**1,020 batched calls, 0 API errors, $17.78.** 170 cases per run (126 held-out
+classification + 44 damaged-ledger repair), six runs: three models at default
+effort plus an effort sweep on Sonnet 5. Raw:
+`artifacts/sweep_20260808T194521Z.jsonl`, per-call usage in
+`artifacts/llm_usage.jsonl`.
+
+### The frontier
+
+Classification only (126 held-out cases, 14 fault classes):
+
+| Run | acc@1 | acc@3 | $/case (batched) | mean output tokens |
+|---|---|---|---|---|
+| **Opus 5** (default) | **0.976** | **1.000** | $0.0311 | 742 |
+| **Sonnet 5** (default) | 0.905 | **1.000** | **$0.0099** | 1,073 |
+| **Haiku 4.5** (default) | 0.825 | 0.841 | $0.0049 | 1,094 |
+
+**Sonnet 5 matches Opus 5's perfect `acc@3` at 32% of the cost**, and reaches
+93% of its top-choice accuracy. If the task is "rank the likely faults for a
+human to confirm" — which is what on-call triage actually is — the cheaper
+model is indistinguishable from the expensive one on this benchmark. If the
+task is "answer once, unattended", Opus 5's 7-point `acc@1` lead is worth its
+3× price. Haiku is half Sonnet's cost but drops 8 points of `acc@1` and, more
+tellingly, 16 points of `acc@3`: its second and third guesses are much weaker,
+so it is the wrong choice for a ranked-suggestions workflow.
+
+### Higher effort never helped — the clearest result in the sweep
+
+| Sonnet 5 effort | acc@1 | acc@3 | $/case |
+|---|---|---|---|
+| default | **0.905** | **1.000** | **$0.0099** |
+| `high` | 0.889 | 0.976 | $0.0218 |
+| `medium` | 0.794 | 0.944 | $0.0201 |
+| `low` | 0.794 | 0.952 | $0.0169 |
+
+Every explicit effort setting was **worse and more expensive** than leaving it
+alone. `low` and `medium` cost roughly twice the default for eleven points less
+accuracy. This is the result the brief asks to be reported honestly if it
+appears: on this task, spending more reasoning does not buy correctness, and
+tuning effort downward to save money loses accuracy *without* saving anything.
+
+### No model produced a single correct repair
+
+Across **264 damaged-ledger cases**, zero correct compensating transactions —
+from any model, at any effort. What separates them is what they did instead:
+
+| Run | correct repairs | false repairs | claimed to fix the unfixable |
+|---|---|---|---|
+| Opus 5 | 0 / 36 | 0 | **0 / 8** |
+| Sonnet 5 (default, `high`) | 0 / 44 | 0 | **0 / 0** |
+| Sonnet 5 `medium` | 0 / 42 | 1 | 1 / 2 |
+| Sonnet 5 `low` | 0 / 36 | **8** | **8 / 8** |
+| Haiku 4.5 | 0 / 36 | **7** | **8 / 8** |
+
+Opus 5 and Sonnet 5 at default proposed nothing at all — the safe answer, since
+the correct move on an unbalanced write is to say it cannot be repaired. Haiku
+and Sonnet-at-`low` confidently proposed repairs for **8 of 8** unbalanced
+writes, damage that provably cannot be undone by any transaction the database
+would accept. **Lower capability and lower effort both correlate with
+confidently proposing impossible fixes** — the failure mode that matters most
+for an agent allowed near money, and the reason the human approval gate is not
+optional.
+
+### Where the models actually differ
+
+Per-fault accuracy is near-ceiling and identical across models for ten of the
+fourteen classes. Three separate them:
+
+| Fault | Opus 5 | Sonnet 5 | Haiku 4.5 |
+|---|---|---|---|
+| `REORDER` | **8/8** | 2/8 | 1/8 |
+| `SLOW_LORIS` | 10/10 | 10/10 | **2/10** |
+| `DELAY` | 7/10 | 6/10 | 5/10 |
+
+`REORDER` is the discriminator: it requires noticing that the *later-generated*
+event was recorded first, which means reading event ids as a sequence rather
+than reading each delivery in isolation. Opus gets it every time; the others
+almost never do.
+
+### Caveats, stated rather than buried
+
+- **`DELAY` → `STALE_TIMESTAMP` (9 of the pooled errors) is a label ambiguity,
+  not a model failure.** A delay long enough to exceed the tolerance window
+  *is* a stale signature at the point of rejection; the two labels describe the
+  same observable. That combination should be one class, or `DELAY` should only
+  ever be benign. Counted as errors here, so the reported accuracies are
+  slightly pessimistic for every model.
+- **Cost figures carry cache noise; accuracy figures do not.** Prefix cache-hit
+  rates ranged from **1% to 99%** across runs, because a batch processes
+  requests concurrently and a cache entry is only readable after the first
+  response begins — so most of a batch can start cold. Sonnet's default run hit
+  99% and Opus's hit 8%, which flatters Sonnet's $/case and penalises Opus's.
+  The accuracy ranking is unaffected, but the cost axis should be read as
+  approximate rather than a steady-state deployment figure.
+- **28 of 1,020 responses (2.7%) returned no parseable content**, almost
+  entirely Sonnet on the unbalanced-write cases — plausibly exhausting
+  `max_tokens` reasoning about a repair that cannot exist. They are scored as
+  wrong. Excluding them changes no ranking (Sonnet `medium` 0.794 → 0.820).
+- One seed, one split, 126 classification cases. Differences of a point or two
+  are not meaningful at this sample size; the Opus/Haiku gap and the effort
+  result are.
+
 ## Measured: Phase 5 pilot — 2026-08-08
 
 14 cases × 3 models, live calls, **$1.09 of a $15 cap**. Raw:
