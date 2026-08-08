@@ -1,0 +1,35 @@
+{
+  "argv": [
+    "C:\\Users\\Anthony\\LedgerProof\\harness\\runner.py",
+    "--seed",
+    "23",
+    "--per-combo",
+    "8",
+    "--faults",
+    "NONE",
+    "--kinds",
+    "charge_succeeded",
+    "--out",
+    "C:\\Users\\Anthony\\LedgerProof\\artifacts\\mutation\\m7_unbalanced_stratum.jsonl",
+    "--port",
+    "8100"
+  ],
+  "started_at": "2026-08-08T18:38:17.537099+00:00",
+  "finished_at": "2026-08-08T18:38:36.661652+00:00",
+  "wall_clock_s": 19.12,
+  "artifact": "C:\\Users\\Anthony\\LedgerProof\\artifacts\\mutation\\m7_unbalanced_stratum.jsonl",
+  "scenarios_generated": 8,
+  "scenarios_run": 8,
+  "scenarios_with_breaks": 8,
+  "scenarios_errored": 0,
+  "counts_by_fault": {
+    "NONE": 8
+  },
+  "breaks_by_kind": {
+    "INVARIANT_VIOLATION": 8,
+    "LEDGER_DIFF_MISMATCH": 8
+  },
+  "kill_scenarios": 0,
+  "kills_with_task_in_flight": 0,
+  "skipped_combos": []
+}

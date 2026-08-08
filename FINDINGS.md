@@ -339,6 +339,64 @@ double-admit the lock exists to prevent). A 32-thread race against one cold key
 confirms the burst is never exceeded — the same unguarded read-modify-write the
 chaos harness hunts in the ledger.
 
+## Measured: Phase 5 pilot — 2026-08-08
+
+14 cases × 3 models, live calls, **$1.09 of a $15 cap**. Raw:
+`artifacts/pilot_20260808T184220Z.jsonl`, usage in `artifacts/llm_usage.jsonl`.
+
+| Model | acc@1 | acc@3 | p50 latency | $/case | mean output tokens |
+|---|---|---|---|---|---|
+| `claude-opus-5` | **0.64** | **0.86** | 10.9 s | $0.0368 | 1,167 |
+| `claude-sonnet-5` | 0.43 | 0.71 | 12.0 s | $0.0335 | 1,928 |
+| `claude-haiku-4-5` | 0.43 | 0.50 | 9.1 s | **$0.0075** | 1,258 |
+
+**The prefix caching worked:** 13 of 14 calls hit cache on *all three* models
+(the first writes it, the rest read). Had it stayed at 2,778 tokens, Haiku
+would have hit 0 of 14 and its measured cost would have been several times
+higher — the fix was worth making before spending, not after.
+
+**Sonnet 5 is the worst value here, and the reason is visible in the tokens.**
+It costs nearly as much as Opus 5 while matching Haiku's accuracy, because it
+emits **65% more output tokens than Opus** (1,928 vs 1,167) and is wrong more
+often for them. On this task more thinking is not better thinking. Haiku
+delivers Sonnet's accuracy at **4.5× less cost**.
+
+**Nobody proposed a correct repair — 0 across all three models.** Opus and
+Sonnet proposed nothing at all (conservative, and therefore harmless). Haiku
+produced 2 false repairs *and* claimed to fix 2 of 2 unbalanced writes — the
+damage that provably cannot be repaired by any transaction the database would
+accept. Confidently proposing an impossible fix is the worst available
+behaviour, and it is the cheapest model doing it.
+
+**Confidence is poorly calibrated**, most severely on the cheapest model:
+Haiku reports 0.97 when right and 0.86 when wrong — almost no discrimination.
+Opus: 0.77 vs 0.72. Sonnet is the best-calibrated (0.82 vs 0.53) despite being
+less accurate, which is its one clear advantage in this run.
+
+### P1 — Four more fault classes are unanswerable from the evidence given
+
+This is a flaw in the benchmark, not a result about the models, and it is the
+same mistake as the signature-attack collapse caught before the sweep — found
+again only because the pilot's confusion matrix was read rather than its
+headline number. Every one of these confusions occurred on **all three
+models**, which is the signature of missing evidence rather than weak
+reasoning:
+
+| Confusion | Why no model could do better |
+|---|---|
+| `RESPOND_500` → `DUPLICATE` (×3) | The forced 500 is answered by the proxy *upstream* of ingest, so the recorded evidence shows two ordinary 200s — precisely `DUPLICATE`'s signature. The defining event never appears. |
+| `CONCURRENT_DUPLICATE` → `DUPLICATE` (×3) | The stated giveaway is that deliveries *overlap in time*, but only `duration_ms` is rendered — never start timestamps. Overlap is literally not visible. |
+| `PARTIAL_WRITE` → `DUPLICATE` (×3, incl. via `NONE`) | A kill followed by redelivery leaves two 200s and one transaction — again identical to `DUPLICATE`. The kill leaves no trace in the evidence. |
+| `DELAY` → `NONE` (×3) | The in-tolerance variant delays ~250 ms and posts normally, which is indistinguishable from ordinary jitter at this resolution. |
+
+Roughly a third of all errors fall in these four classes. Reporting a frontier
+built on them would be publishing the harness's blind spots as a fact about
+Claude, so the full sweep is **not** run until the evidence is fixed:
+record delivery start timestamps (exposes concurrency), record the upstream
+status the proxy returned (exposes `RESPOND_500`), record the worker restart
+(exposes `PARTIAL_WRITE`), and either widen the in-tolerance `DELAY` or fold it
+into the stale variant.
+
 ## Found while preparing to publish — 2026-08-07
 
 ### S1 (process) — A live signing secret reached a committed artifact

@@ -62,6 +62,19 @@ BATCH_MULTIPLIER = 0.50  # Batch API discount
 MIN_CACHEABLE_PREFIX = {OPUS: 512, SONNET: 1024, HAIKU: 4096}
 
 
+# The seeded chart of accounts: name -> normal direction. Used to apply a
+# proposed repair arithmetically, exactly as the account_balances view would.
+ACCOUNT_NORMALS = {
+    "stripe_balance": "debit",
+    "bank": "debit",
+    "processing_fees": "debit",
+    "dispute_losses": "debit",
+    "refunds_contra": "debit",
+    "revenue": "credit",
+    "customer_liability": "credit",
+}
+
+
 @dataclass(frozen=True)
 class Case:
     """One benchmark item: evidence the agent sees, and the label it must not."""
@@ -72,6 +85,12 @@ class Case:
     label_kind: str
     money_was_missing: bool
     expected_delta: dict[str, int]
+    observed_delta: dict[str, int] = field(default_factory=dict)
+    # False for damage no balanced transaction can undo — see
+    # tests/unit/test_repair_algebra.py. The correct answer on those is to say
+    # so, not to propose entries.
+    repairable: bool = True
+    stratum: str = "classification"
 
     def as_prompt_case(self) -> dict[str, Any]:
         return self.evidence
@@ -104,6 +123,72 @@ def load_cases(artifact: Path) -> list[Case]:
             )
         )
     return cases
+
+
+def load_repair_cases(artifact: Path) -> list[Case]:
+    """Load the repair stratum: scenarios run against deliberately broken builds.
+
+    These are the only cases where the books are actually wrong, because the
+    shipped system produces none. Each carries what the ledger SHOULD show and
+    what it does show, so a proposed repair can be scored objectively.
+    """
+    cases: list[Case] = []
+    for line in artifact.read_text(encoding="utf-8").splitlines():
+        if not line.strip():
+            continue
+        record = json.loads(line)
+        if record.get("error"):
+            continue
+        label = record["repair_label"]
+        cases.append(
+            Case(
+                case_id=f"{label['mutation']}::{record['scenario_id']}",
+                evidence=prompts.build_case(record),
+                label_fault=record["fault"],
+                label_kind=(record.get("kinds") or ["unknown"])[0],
+                money_was_missing=True,
+                expected_delta=dict(label["expected_balances_delta"]),
+                observed_delta=dict(label["observed_balances_delta"]),
+                repairable=bool(label["repairable_by_compensating_transaction"]),
+                stratum=label["mutation"],
+            )
+        )
+    return cases
+
+
+def apply_repair(observed: dict[str, int], entries: list[Any]) -> dict[str, int]:
+    """Balances after posting these entries, using the account_balances sign rule.
+
+    A debit adds to a debit-normal account and subtracts from a credit-normal
+    one; a credit does the inverse.
+    """
+    result = dict(observed)
+    for entry in entries:
+        normal = ACCOUNT_NORMALS.get(entry.account_name)
+        if normal is None:
+            # An account that does not exist: the database would reject this.
+            result[entry.account_name] = result.get(entry.account_name, 0)
+            continue
+        signed = entry.amount_minor if entry.direction == normal else -entry.amount_minor
+        result[entry.account_name] = result.get(entry.account_name, 0) + signed
+    return {k: v for k, v in result.items() if v != 0}
+
+
+def repair_restores_expected_balances(case: Case, verdict: Verdict) -> bool:
+    """Does applying the proposal make the books match what the events imply?
+
+    This — not `repair_restores_invariant` — is the metric that separates a
+    good repair from a bad one on this system. Money conservation is preserved
+    by EVERY balanced transaction (proved exhaustively in
+    tests/unit/test_repair_algebra.py), so it is unchanged by any repair the
+    database would accept: it cannot distinguish a correct repair from one that
+    balances into entirely the wrong accounts. Agreement with ground truth can.
+    """
+    if not verdict.proposed_repair or not repair_is_balanced(verdict.proposed_repair):
+        return False
+    repaired = apply_repair(case.observed_delta, verdict.proposed_repair)
+    expected = {k: v for k, v in case.expected_delta.items() if v != 0}
+    return repaired == expected
 
 
 def class_balance(cases: list[Case]) -> dict[str, int]:
@@ -155,6 +240,10 @@ class Scored:
     repair_balanced: bool
     over_repair: bool
     refused: bool
+    # Repair stratum only; None on classification cases where nothing is wrong.
+    repair_correct: bool | None = None
+    false_repair: bool | None = None
+    claimed_to_fix_the_unfixable: bool | None = None
 
 
 def score(case: Case, verdict: Verdict | None, *, latency_s: float, cost_usd: float,
@@ -168,6 +257,22 @@ def score(case: Case, verdict: Verdict | None, *, latency_s: float, cost_usd: fl
         )
     ranked = [verdict.fault_class.value] + [f.value for f in verdict.alternate_fault_classes]
     proposed = bool(verdict.proposed_repair) and verdict.money_is_missing
+    balanced = proposed and repair_is_balanced(verdict.proposed_repair)
+
+    repair_correct: bool | None = None
+    false_repair: bool | None = None
+    unfixable_claim: bool | None = None
+    if case.money_was_missing:
+        repair_correct = repair_restores_expected_balances(case, verdict)
+        # The dangerous failure: it balances, so the database accepts it and
+        # every automated check passes, but it posts to the wrong accounts.
+        false_repair = balanced and not repair_correct
+        if not case.repairable:
+            # No balanced transaction can close an unbalanced write's gap.
+            # Proposing one anyway is a confident, checkable error.
+            unfixable_claim = proposed
+            repair_correct = False if proposed else None
+
     return Scored(
         case_id=case.case_id,
         label_fault=case.label_fault,
@@ -179,7 +284,10 @@ def score(case: Case, verdict: Verdict | None, *, latency_s: float, cost_usd: fl
         latency_s=latency_s,
         cost_usd=cost_usd,
         proposed_repair=proposed,
-        repair_balanced=proposed and repair_is_balanced(verdict.proposed_repair),
+        repair_balanced=balanced,
+        repair_correct=repair_correct,
+        false_repair=false_repair,
+        claimed_to_fix_the_unfixable=unfixable_claim,
         # The healthy-system failure mode: "fixing" books that were already right.
         over_repair=proposed and not case.money_was_missing,
         refused=refused,
@@ -202,6 +310,7 @@ def aggregate(scored: list[Scored]) -> dict[str, Any]:
         "over_repair_rate": round(sum(s.over_repair for s in scored) / n, 4),
         "repair_proposed": sum(s.proposed_repair for s in scored),
         "repair_balanced": sum(s.repair_balanced for s in scored),
+        **_repair_metrics(scored),
         "mean_confidence": round(sum(s.confidence for s in answered) / len(answered), 4)
         if answered
         else 0.0,
@@ -219,6 +328,34 @@ def aggregate(scored: list[Scored]) -> dict[str, Any]:
         },
         "confusion": _confusion(scored),
     }
+
+
+def _repair_metrics(scored: list[Scored]) -> dict[str, Any]:
+    """Repair-stratum metrics, reported only over cases where books were wrong."""
+    repairable = [s for s in scored if s.repair_correct is not None or s.false_repair is not None]
+    if not repairable:
+        return {"repair_stratum_n": 0}
+    fixable = [s for s in repairable if s.claimed_to_fix_the_unfixable is None]
+    unfixable = [s for s in repairable if s.claimed_to_fix_the_unfixable is not None]
+    out: dict[str, Any] = {
+        "repair_stratum_n": len(repairable),
+        "false_repair_rate": round(
+            sum(bool(s.false_repair) for s in repairable) / len(repairable), 4
+        ),
+    }
+    if fixable:
+        out["repair_restores_expected_balances"] = round(
+            sum(bool(s.repair_correct) for s in fixable) / len(fixable), 4
+        )
+        out["repair_fixable_n"] = len(fixable)
+    if unfixable:
+        # An unbalanced write cannot be undone by anything the database accepts.
+        # Proposing a repair here is a confident error worth counting on its own.
+        out["unfixable_n"] = len(unfixable)
+        out["claimed_to_fix_the_unfixable_rate"] = round(
+            sum(bool(s.claimed_to_fix_the_unfixable) for s in unfixable) / len(unfixable), 4
+        )
+    return out
 
 
 def _confusion(scored: list[Scored]) -> dict[str, dict[str, int]]:

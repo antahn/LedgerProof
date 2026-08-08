@@ -1,0 +1,37 @@
+{
+  "argv": [
+    "C:\\Users\\Anthony\\LedgerProof\\harness\\runner.py",
+    "--seed",
+    "23",
+    "--per-combo",
+    "3",
+    "--faults",
+    "DUPLICATE,CONCURRENT_DUPLICATE,RESPOND_500",
+    "--kinds",
+    "charge_succeeded,charge_refunded,payout_paid,dispute_created",
+    "--out",
+    "C:\\Users\\Anthony\\LedgerProof\\artifacts\\mutation\\m5_double_post_stratum.jsonl",
+    "--port",
+    "8100"
+  ],
+  "started_at": "2026-08-08T18:37:31.257589+00:00",
+  "finished_at": "2026-08-08T18:38:15.483165+00:00",
+  "wall_clock_s": 44.22,
+  "artifact": "C:\\Users\\Anthony\\LedgerProof\\artifacts\\mutation\\m5_double_post_stratum.jsonl",
+  "scenarios_generated": 36,
+  "scenarios_run": 36,
+  "scenarios_with_breaks": 36,
+  "scenarios_errored": 0,
+  "counts_by_fault": {
+    "CONCURRENT_DUPLICATE": 12,
+    "DUPLICATE": 12,
+    "RESPOND_500": 12
+  },
+  "breaks_by_kind": {
+    "DOUBLE_POST": 36,
+    "LEDGER_DIFF_MISMATCH": 36
+  },
+  "kill_scenarios": 0,
+  "kills_with_task_in_flight": 0,
+  "skipped_combos": []
+}
