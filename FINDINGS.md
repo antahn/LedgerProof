@@ -166,7 +166,7 @@ Raw: [`artifacts/chaos_20260805T074627Z.jsonl`](artifacts/chaos_20260805T074627Z
 
 - **Where:** `ingest/app.py` (outbox recovery) with `worker/tasks.py` (broker config)
 - **Repro:** `uv run python -m harness.runner --seed 7 --per-combo 3` on the
-  code at commit `08cb5f6`. The `PARTIAL_WRITE` fault SIGKILLs the worker
+  code at commit `1706ef8`. The `PARTIAL_WRITE` fault SIGKILLs the worker
   ~100 ms after delivery, then redelivers as Stripe would. Three of twelve kill
   scenarios ended with an empty ledger where entries were due — e.g.
   `partial_write-charge_succeeded-0001` expected
@@ -585,8 +585,9 @@ implies a fault is not leakage; only the label is.
 
 ### S1 (process) — A live signing secret reached a committed artifact
 
-- **Where:** `artifacts/phase0_stripe_e2e.txt`, committed from `08cb5f6` onward
-  (the pre-scrub hash was `ed36a1f`, which the scrub itself invalidated).
+- **Where:** `artifacts/phase0_stripe_e2e.txt`, committed from `1706ef8` onward
+  (originally `ed36a1f`, then `08cb5f6`; two separate history rewrites have
+  invalidated that hash in turn — see the note on rewrites below).
 - **How it happened:** the artifact was captured by tailing the `stripe listen`
   log, whose startup banner prints the endpoint signing secret. The capture was
   mechanical — "record the raw evidence" — and the banner came along with it.
@@ -745,6 +746,14 @@ three of these change a claim rather than a digit.
   the ones inside artifacts — `artifacts/mutation_check.json` still records the
   dead `bf8460e` and cannot be corrected without editing an artifact, which the
   project's own rules forbid.
+- **This has now happened twice.** A second `filter-branch` pass removed the
+  planning document from every commit, rewriting all 27 hashes again. The
+  reproduction anchor above is now `1706ef8`; it was `08cb5f6` after the first
+  rewrite and `ed36a1f` before it. The general lesson is the one this file
+  already recorded and then had to apply to itself: **a commit hash is not a
+  durable citation.** Anything that must survive belongs in a file, not in a
+  SHA — which is exactly why the artifacts, not the hashes, are what the
+  numbers here are checked against.
 
 Further limitations the audit surfaced that this file had not admitted:
 
