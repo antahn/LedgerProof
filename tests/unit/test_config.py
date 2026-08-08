@@ -1,4 +1,4 @@
-"""Config: test-mode-only enforcement of STRIPE_SECRET_KEY (brief §1 rule 2)."""
+"""Config: test-mode-only enforcement of STRIPE_SECRET_KEY."""
 
 from __future__ import annotations
 

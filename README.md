@@ -15,7 +15,7 @@ delivery to find the bugs the happy path hides.
 > critical bug — an unclean worker death stranded a payment where every
 > recovery mechanism believed someone else had handled it, losing the money
 > outright in 3 of 12 kill scenarios while the conservation invariant stayed
-> green. Plus 5 more from a pre-gate review and 1 from the very first live
+> green. Plus 5 more from a structured adversarial review and 1 from the first live
 > webhook. The harness itself was wrong three times first, and those
 > corrections are written down too. Full repro, diagnosis, and fix for each:
 > [FINDINGS.md](FINDINGS.md). Every number here traces to a run in
@@ -109,5 +109,4 @@ Stripe **test mode only** — keys must start with `sk_test_`.
 - `src/ledgerproof/triage/` — LLM triage agent (proposes repairs as data; never writes)
 - `harness/` — the chaos proxy, fault taxonomy, scenario generator, runner
 - `artifacts/` — raw output of every run; never hand-edited
-- `FINDINGS.md` — every bug the harness found: repro, diagnosis, fix
-- `LEDGERPROOF_BRIEF.md` — the full build brief this project follows
+- `FINDINGS.md` — every bug found: repro, diagnosis, fix

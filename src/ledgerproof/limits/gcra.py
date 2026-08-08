@@ -1,4 +1,4 @@
-"""GCRA rate limiter (brief §5.5).
+"""GCRA rate limiter.
 
 GCRA — the Generic Cell Rate Algorithm — is a leaky-bucket variant that never
 simulates a leak. Instead it stores one number per key, the **theoretical

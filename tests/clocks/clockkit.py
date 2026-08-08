@@ -1,4 +1,4 @@
-"""Helpers for deterministic Stripe test-clock lifecycle tests (brief §5.4).
+"""Helpers for deterministic Stripe test-clock lifecycle tests.
 
 A test clock gives a frozen, forward-only clock, so a subscription-year of
 billing behaviour runs in seconds. The constraints below are not style choices;

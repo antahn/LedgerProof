@@ -1,6 +1,6 @@
 """Map Stripe events to balanced ledger transactions.
 
-Contract (each row balances, per §4.3 of the brief):
+Contract (each row balances):
 - charge.succeeded / payment_intent.succeeded:
     DR stripe_balance (net), DR processing_fees (fee) / CR revenue (gross)
     The PAIR is ONE money movement — dispatch subscribes to charge.succeeded

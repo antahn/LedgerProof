@@ -1,4 +1,4 @@
--- 001_ledger.sql — the correctness core (LEDGERPROOF_BRIEF §4.2).
+-- 001_ledger.sql — the correctness core.
 --
 -- Four objects: ledger -> account -> transaction -> entry. One transaction,
 -- at least two entries: one source of funds, one use.

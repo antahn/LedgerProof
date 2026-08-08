@@ -1,5 +1,5 @@
 """The money-conservation invariant, property-tested over >=1,000 randomized
-balanced transactions posted through the real write path (brief §6 Phase 1)."""
+balanced transactions posted through the real write path."""
 
 from __future__ import annotations
 

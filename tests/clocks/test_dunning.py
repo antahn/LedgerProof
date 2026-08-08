@@ -1,6 +1,6 @@
 """Multi-attempt dunning on a test clock.
 
-Brief §6 Phase 3 suite 3: a card that fails at CHARGE time (not at attach
+Suite 3: a card that fails at CHARGE time (not at attach
 time — `pm_card_chargeCustomerFail` attaches successfully, which is exactly why
 it reaches the renewal path), then advance through Stripe's Smart Retries
 schedule asserting each attempt, then the terminal state.

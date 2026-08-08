@@ -1,6 +1,6 @@
 """Load-test the shedder and record the pressure at which each tier engages.
 
-The brief asks for the ACTUAL numbers, not the configured thresholds — the
+What matters is the ACTUAL numbers, not the configured thresholds — the
 threshold is the intent, the engagement point is the behaviour, and the
 anti-flap machinery deliberately puts them in different places: a tier does not
 shed the instant pressure crosses its threshold, but only after enough

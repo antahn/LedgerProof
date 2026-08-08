@@ -1,6 +1,6 @@
 """Renewal cycles on a test clock: one balanced transaction per cycle.
 
-Brief §6 Phase 3 suite 2: advance past `current_period_end` repeatedly and
+Suite 2: advance past `current_period_end` repeatedly and
 assert exactly one balanced transaction per cycle, with money conservation
 holding after each.
 """

@@ -2,9 +2,9 @@
 
 Every fixture carries `expected_delta`: the signed, minor-unit change each
 account SHOULD show once this event is posted. That is the harness's ground
-truth — the free-labels insight the Phase 5 benchmark rests on — so it is
-derived from the brief's §4.3 mapping table independently of
-`stripe_io.mapping`, and `tests/chaos/test_faults.py` asserts the two agree.
+truth — the free-labels insight the benchmark rests on — so it is derived from
+the double-entry mapping table independently of `stripe_io.mapping`, and
+`tests/chaos/test_faults.py` asserts the two agree.
 If they ever disagree, one of them is wrong and the disagreement is the bug.
 
 Sign convention (identical to the `account_balances` view): a debit entry ADDS

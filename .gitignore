@@ -27,6 +27,9 @@ artifacts/logs/
 # so the repo doesn't pre-empt the post. Delete this rule to publish it here.
 writeup/POST.md
 
+# Personal working notes, kept locally and out of the repo.
+LEDGERPROOF_BRIEF.md
+
 # OS / editor noise
 .DS_Store
 Thumbs.db

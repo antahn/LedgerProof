@@ -1,4 +1,4 @@
-# Local services. The brief (§3) prefers native services on macOS/brew; on this
+# Local services. Native installs would work on macOS/brew; on this
 # Windows machine Docker Desktop is the installed option and Redis has no official
 # native Windows build, so containers are primary here. Same engines, same
 # semantics: real Postgres 17 (SERIALIZABLE races) and real Redis 7 (GCRA state).

@@ -1,6 +1,5 @@
 -- The canonical schema lives in migrations/ (plain numbered .sql, applied by
--- scripts/migrate.py). This file exists to satisfy the repo layout in the brief
--- and points there:
+-- scripts/migrate.py). This file is a pointer kept for discoverability:
 --
 --   migrations/001_ledger.sql        types, tables, view, append-only triggers,
 --                                    deferred balance + min-entries triggers,

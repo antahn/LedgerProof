@@ -1,4 +1,4 @@
-"""Integration tests for the webhook ingress (LEDGERPROOF_BRIEF §5.3).
+"""Integration tests for the webhook ingress.
 
 Real Deduper against the scratch database; recording-fake enqueue; fixed
 webhook secret. The endpoint's whole contract: size cap -> raw body -> verify

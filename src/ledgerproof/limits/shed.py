@@ -1,4 +1,4 @@
-"""Tiered load shedding (brief §5.5).
+"""Tiered load shedding.
 
 Under overload something must be dropped, and the only question is *what*. The
 tiers below are ordered so that the traffic whose loss costs least goes first,

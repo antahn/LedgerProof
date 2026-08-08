@@ -25,7 +25,7 @@ from ledgerproof.stripe_io.mapping import (
 if TYPE_CHECKING:
     from ledgerproof.stripe_io.client import StripeEgressClient
 
-# The subscribed-event source of truth (brief §5.3: subscribe only to what you
+# The subscribed-event source of truth (subscribe only to what you
 # handle). payment_intent.succeeded is deliberately ABSENT: a PaymentIntents
 # payment emits it alongside charge.succeeded for the SAME money movement, and
 # handling both double-posts the payment — charge.succeeded carries the money.

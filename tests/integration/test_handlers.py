@@ -1,4 +1,4 @@
-"""Integration tests for worker handlers (LEDGERPROOF_BRIEF §5.3).
+"""Integration tests for worker handlers.
 
 Order-independent, duplicate-tolerant, and they never invent state: a missing
 fee is fetched from the (stubbed) Stripe API by id. Handlers run strictly

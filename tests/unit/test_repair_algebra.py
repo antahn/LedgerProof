@@ -2,8 +2,8 @@
 
 The ledger's only sanctioned correction is a new balanced transaction. This
 file establishes what that mechanism is actually capable of — which turns out
-to bound the Phase 5 repair metric, and to explain why the brief's
-`repair_restores_invariant` is vacuous on this system.
+to bound the benchmark's repair metric, and to explain why the obvious choice
+of metric — `repair_restores_invariant` — is vacuous on this system.
 """
 
 from __future__ import annotations

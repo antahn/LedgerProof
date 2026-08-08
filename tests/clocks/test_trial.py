@@ -1,6 +1,6 @@
 """Trial lifecycle on a test clock: warning event, then conversion.
 
-Brief §6 Phase 3 suite 1: advance to trial_end − 3d and assert
+Suite 1: advance to trial_end − 3d and assert
 `customer.subscription.trial_will_end`; advance past trial_end and assert the
 subscription converts and the resulting charge lands in the ledger.
 """

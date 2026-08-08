@@ -81,7 +81,7 @@ def _flatten_value(key: str, value: object) -> list[tuple[str, str]]:
 
 
 class StripeEgressClient:
-    """httpx-based Stripe client implementing the brief §5.2 retry matrix.
+    """httpx-based Stripe client implementing the idempotent-retry matrix.
 
     ``max_retries`` bounds retries after the initial attempt, so a request is
     sent at most ``max_retries + 1`` times; exhausting retries raises a

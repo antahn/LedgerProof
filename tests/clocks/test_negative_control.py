@@ -1,4 +1,4 @@
-"""A test that cannot fail proves nothing (brief §6 Phase 3).
+"""A test that cannot fail proves nothing.
 
 The lifecycle suites assert against a real Stripe sandbox over simulated
 months. If a broken handler still produced green suites, all that green would

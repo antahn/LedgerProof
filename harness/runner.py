@@ -57,7 +57,7 @@ QUIESCENT_TIMEOUT_S = 15.0
 PROXY_TIMEOUT_S = 30.0
 HEALTH_PROBE_INTERVAL_S = 0.4
 
-# Break kinds this runner emits. Seven come from the brief's Phase 2 contract;
+# Break kinds this runner emits. Seven are the core harness contract;
 # INGEST_UNRESPONSIVE is measured only for SLOW_LORIS, where "ingest doesn't
 # wedge" is the whole point and the ledger cannot show it.
 INVARIANT_VIOLATION = "INVARIANT_VIOLATION"

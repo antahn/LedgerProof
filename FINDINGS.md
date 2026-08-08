@@ -14,10 +14,11 @@ kept separate so harness results are never inflated by review results.
 
 ---
 
-## Found by pre-gate adversarial review — 2026-08-04
+## Found by structured adversarial review — 2026-08-04
 
-Method: five reviewers examined the Phase-1 implementation against the brief's
-specs (§4.2/§4.3/§5.1/§5.2/§5.3), one dimension each; every candidate finding
+Method: five reviewers examined the first implementation against its specs
+(ledger core, event mapping, signature verification, idempotent egress, and
+the ingest path), one dimension each; every candidate finding
 was then attacked by an independent skeptical verifier instructed to refute it,
 with empirical demonstration required. Raw output (all 27 raw findings, the 5
 confirmations, 5 refutations, 17 deferred):
@@ -42,9 +43,9 @@ precisely in the gap the suite did not cover.
   (`charge.succeeded/ch_1` vs `payment_intent.succeeded/pi_1`) — so no
   constraint fires. The money-conservation invariant stays green because both
   sides doubled: conservation checks internal consistency, not agreement with
-  reality. The brief's §4.3 puts the two event types on *one* mapping row
-  because they are one money movement; treating them as two independently
-  postable events is the bug.
+  reality. The mapping table puts the two event types on *one* row because they
+  are one money movement; treating them as two independently postable events is
+  the bug.
 - **Fix:** `payment_intent.succeeded` removed from `HANDLED_EVENT_TYPES`
   (§5.3: subscribe only to what you handle; `charge.succeeded` carries the
   money). The mapping retains PI support as a documented, unsubscribed
@@ -400,9 +401,9 @@ The accuracy ranking is unaffected. Quote the 26% only with the caveat attached.
 | `low` | 0.794 | 0.952 | $0.0160 |
 
 Every explicit effort setting was **worse** than leaving it alone, and tuning
-effort downward to save money lost eleven points of accuracy. This is the result
-the brief asks to be reported honestly if it appears: on this task, spending
-more reasoning does not buy correctness.
+effort downward to save money lost eleven points of accuracy. It is a negative
+result and it is reported because it is one: on this task, spending more
+reasoning does not buy correctness.
 
 **The cost half of that claim does not survive the caching caveat, and is
 withdrawn.** The default run read 99.2% of its prefix from cache;
@@ -611,8 +612,8 @@ implies a fault is not leakage; only the label is.
   webhook signature to a listener an attacker must already be able to reach, in
   test mode, moving no real money — which is why the containment (scrub +
   scanner) is the substantive fix and rotation would have been belt-and-braces.
-- **Why it is written down:** the brief's rule is that secrets never touch git,
-  and the interesting part is not the rule but the failure mode. Careful review
+- **Why it is written down:** the rule is that secrets never touch git, and the
+  interesting part is not the rule but the failure mode. Careful review
   of a diff did not catch this; a check keyed to the shape of the thing did.
 
 ## Coverage notes

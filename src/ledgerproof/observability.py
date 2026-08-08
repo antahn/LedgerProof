@@ -1,4 +1,4 @@
-"""Tracing and metrics across ingest -> queue -> worker -> DB (brief §6 Phase 4).
+"""Tracing and metrics across ingest -> queue -> worker -> DB.
 
 Two separate concerns, deliberately not conflated:
 

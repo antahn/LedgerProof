@@ -1,4 +1,4 @@
--- 002_seed_accounts.sql — chart of accounts (LEDGERPROOF_BRIEF §4.3), USD.
+-- 002_seed_accounts.sql — chart of accounts, USD.
 BEGIN;
 
 INSERT INTO accounts (name, kind, normal, currency) VALUES

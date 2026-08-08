@@ -1,4 +1,4 @@
-"""Egress retry-matrix tests (brief §5.2) against a scripted mini-Stripe.
+"""Egress retry-matrix tests against a scripted mini-Stripe.
 
 Every test uses httpx.MockTransport as the fake Stripe and injects sleep/rng so
 the backoff schedule is observable and reproducible. No network, no DB.

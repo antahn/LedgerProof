@@ -1,4 +1,4 @@
-"""Chaos-proxy tests (LEDGERPROOF_BRIEF §6 Phase 2).
+"""Chaos-proxy tests.
 
 No Postgres, no Stripe: the subject here is the wire. A real uvicorn target on
 an ephemeral port records what it actually received — bytes, signature header,

@@ -1,4 +1,4 @@
-"""Scenario generator + runner (LEDGERPROOF_BRIEF §6 Phase 2).
+"""Scenario generator + runner.
 
 Two layers, deliberately separated:
 

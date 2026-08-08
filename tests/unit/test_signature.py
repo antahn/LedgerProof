@@ -1,4 +1,4 @@
-"""Tests for stripe_io.signature — brief §5.1, gate G1 cases (a)–(h).
+"""Tests for stripe_io.signature — the eight required rejection cases (a)–(h).
 
 Secret is a fixed fake ("whsec_" + 32 hex chars). Never a real one.
 """

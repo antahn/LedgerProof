@@ -3,8 +3,8 @@
 Two things are being proven here. First, that every fault in the taxonomy
 produces a coherent plan for every event kind. Second — the load-bearing one —
 that each fixture's `expected_delta` agrees with what `stripe_io.mapping`
-actually posts. Those two are derived independently from the brief's §4.3
-table, so agreement is evidence and disagreement is a bug in one of them.
+actually posts. Those two are derived independently from the same double-entry
+mapping, so agreement is evidence and disagreement is a bug in one of them.
 """
 
 from __future__ import annotations
@@ -133,7 +133,7 @@ def test_invoice_payment_failed_moves_no_money() -> None:
     assert build_transaction(fixture.event) is None
 
 
-def test_expected_deltas_are_the_brief_mapping_table() -> None:
+def test_expected_deltas_match_the_mapping_table() -> None:
     # Spelled out literally so a mapping change cannot quietly redefine what
     # "correct" means on both sides at once.
     charge = make("charge_succeeded", seq=10, created=NOW, amount=1000, fee=59)
