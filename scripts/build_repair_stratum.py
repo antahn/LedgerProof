@@ -129,16 +129,18 @@ def run(*argv: str, check: bool = True) -> subprocess.CompletedProcess:
     return subprocess.run(argv, cwd=REPO, capture_output=True, text=True, check=check)
 
 
-def tree_is_clean() -> bool:
-    """No modifications to TRACKED files.
+def tree_is_clean(paths: tuple[str, ...] = ()) -> bool:
+    """No modifications to TRACKED files, optionally scoped to specific paths.
 
-    Untracked files are ignored deliberately: this script's own output lands in
-    artifacts/, and counting it as dirt would make the post-revert assertion
-    fail on a successful run.
+    Scoping matters for the post-revert check: a successful run REWRITES its
+    own committed artifacts under artifacts/mutation/, so a whole-tree check
+    would report "failed to restore" on exactly the runs that worked. What must
+    be clean afterwards is the set of source files the mutation edited.
     """
-    return not run(
-        "git", "status", "--porcelain", "--untracked-files=no"
-    ).stdout.strip()
+    argv = ["git", "status", "--porcelain", "--untracked-files=no"]
+    if paths:
+        argv += ["--", *paths]
+    return not run(*argv).stdout.strip()
 
 
 def apply(mutation: Mutation) -> None:
@@ -185,7 +187,8 @@ def main() -> None:
             artifact = sweep(mutation)
         finally:
             revert(mutation)
-            assert tree_is_clean(), "failed to restore the tree after mutating it"
+            edited = tuple({e.path for e in mutation.edits})
+            assert tree_is_clean(edited), f"failed to restore {edited} after mutating"
 
         for line in artifact.read_text(encoding="utf-8").splitlines():
             if not line.strip():
