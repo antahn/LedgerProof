@@ -21,6 +21,11 @@ class Settings(BaseSettings):
     test_database_url: str = "postgresql://postgres:ledgerproof@localhost:5432/ledgerproof_test"
     app_database_url: str = "postgresql://ledger_app:ledger_app@localhost:5432/ledgerproof"
     redis_url: str = "redis://localhost:6379/0"
+    # Phase 5 only. Read through Settings rather than letting the Anthropic SDK
+    # pick it out of the environment: python-dotenv resolves .env relative to
+    # the CALLING FILE, so a script outside the repo root silently gets no key
+    # and fails at request time instead of at startup.
+    anthropic_api_key: str = ""
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 

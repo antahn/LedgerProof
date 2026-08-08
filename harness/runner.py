@@ -231,6 +231,72 @@ def _posted_rows(db_url: str, event_ids: Sequence[str]) -> list[str]:
     return [row[0] for row in rows]
 
 
+def _delivery_records(
+    fault_plan: FaultPlan, results: Sequence[DeliveryResult]
+) -> list[dict[str, object]]:
+    """What was sent and what came back, per delivery.
+
+    The REQUEST side is recorded, not just the response, because four faults
+    (TAMPER_BODY, TRUNCATE_BODY, STALE_TIMESTAMP, DOWNGRADE_SCHEME) are
+    identical from the response alone — every one is a 400 'invalid signature'
+    with no ledger movement. An engineer triaging a rejected webhook has the
+    request in front of them; withholding it would make those four classes
+    indistinguishable by construction and cap any classifier at chance across
+    them. The signature header, the body length, and whether the body still
+    parses as JSON separate all four.
+
+    Only the header and metadata are kept — never the signing secret, which
+    appears nowhere in a delivery.
+    """
+    records: list[dict[str, object]] = []
+    planned = list(fault_plan.deliveries)
+    for index, result in enumerate(results):
+        # Retries and redeliveries reuse the first delivery's bytes.
+        sent = planned[index] if index < len(planned) else (planned[0] if planned else None)
+        record: dict[str, object] = {
+            "event_id": result.event_id,
+            "status_code": result.status_code,
+            # The response body says WHICH layer refused: the HMAC check, the
+            # JSON parser, the envelope check, or the size cap.
+            "body": result.body,
+            "error": result.error,
+            "duration_ms": result.duration_ms,
+        }
+        if sent is not None:
+            body = sent.body
+            record["request_signature_header"] = sent.sig_header
+            record["request_body_bytes"] = len(body)
+            record["request_body_parses_as_json"] = _parses_as_json(body)
+        records.append(record)
+    return records
+
+
+def _parses_as_json(body: bytes) -> bool:
+    try:
+        json.loads(body)
+    except (ValueError, UnicodeDecodeError):
+        return False
+    return True
+
+
+def _event_log_rows(db_url: str, event_ids: Sequence[str]) -> list[dict[str, str | None]]:
+    """The stripe_events rows for these events, as ingest recorded them.
+
+    This is the evidence the Phase 5 agent reasons over, so it is captured per
+    scenario rather than reconstructed later: the ledger is shared across a run
+    and a row's status keeps moving after the scenario ends.
+    """
+    with psycopg.connect(db_url) as conn:
+        rows = conn.execute(
+            "SELECT id, event_type, object_id, status FROM stripe_events"
+            " WHERE id = ANY(%s) ORDER BY received_at",
+            (list(event_ids),),
+        ).fetchall()
+    return [
+        {"id": r[0], "event_type": r[1], "object_id": r[2], "status": r[3]} for r in rows
+    ]
+
+
 class _HealthProbe(threading.Thread):
     """Polls /healthz while a slow body is on the wire.
 
@@ -341,6 +407,7 @@ def run_scenario(
     )
     rows = _posted_rows(stack.db_url, candidates)
     posted = tuple(sorted(set(rows)))
+    event_log = _event_log_rows(stack.db_url, candidates)
 
     accepted_rejected = tuple(
         dict.fromkeys(
@@ -414,15 +481,9 @@ def run_scenario(
         "invariant_after": invariant_after.ok,
         "ledger_diff": ledger_diff,
         "duration_ms": int((time.perf_counter() - t0) * 1000),
-        "deliveries": [
-            {
-                "event_id": r.event_id,
-                "status_code": r.status_code,
-                "error": r.error,
-                "duration_ms": r.duration_ms,
-            }
-            for r in results
-        ],
+        "deliveries": _delivery_records(fault_plan, results),
+        # What ingest durably recorded, as an on-call engineer would query it.
+        "event_log": event_log,
         "expected": {
             "posted": sorted(exp.posted_event_ids),
             "rejected": sorted(exp.rejected_event_ids),

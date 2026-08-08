@@ -1,0 +1,120 @@
+{
+  "artifact": "chaos_20260808T181504Z.jsonl",
+  "labeled_set": {
+    "total_cases": 315,
+    "class_balance": {
+      "CONCURRENT_DUPLICATE": 20,
+      "DELAY": 25,
+      "DOWNGRADE_SCHEME": 25,
+      "DROP": 20,
+      "DUPLICATE": 20,
+      "DUPLICATE_OBJECT": 20,
+      "NONE": 25,
+      "PARTIAL_WRITE": 20,
+      "REORDER": 20,
+      "RESPOND_500": 20,
+      "SLOW_LORIS": 25,
+      "STALE_TIMESTAMP": 25,
+      "TAMPER_BODY": 25,
+      "TRUNCATE_BODY": 25
+    },
+    "distinct_classes": 14
+  },
+  "split": {
+    "test_fraction": 0.4,
+    "train_n": 189,
+    "test_n": 126,
+    "train_balance": {
+      "CONCURRENT_DUPLICATE": 12,
+      "DELAY": 15,
+      "DOWNGRADE_SCHEME": 15,
+      "DROP": 12,
+      "DUPLICATE": 12,
+      "DUPLICATE_OBJECT": 12,
+      "NONE": 15,
+      "PARTIAL_WRITE": 12,
+      "REORDER": 12,
+      "RESPOND_500": 12,
+      "SLOW_LORIS": 15,
+      "STALE_TIMESTAMP": 15,
+      "TAMPER_BODY": 15,
+      "TRUNCATE_BODY": 15
+    },
+    "test_balance": {
+      "CONCURRENT_DUPLICATE": 8,
+      "DELAY": 10,
+      "DOWNGRADE_SCHEME": 10,
+      "DROP": 8,
+      "DUPLICATE": 8,
+      "DUPLICATE_OBJECT": 8,
+      "NONE": 10,
+      "PARTIAL_WRITE": 8,
+      "REORDER": 8,
+      "RESPOND_500": 8,
+      "SLOW_LORIS": 10,
+      "STALE_TIMESTAMP": 10,
+      "TAMPER_BODY": 10,
+      "TRUNCATE_BODY": 10
+    },
+    "every_class_in_test": true
+  },
+  "prompt_tokens": {
+    "cached_system_prefix": 4784,
+    "mean_case_evidence": 432.1,
+    "mean_total_input": 5216.1,
+    "min_cacheable_prefix_by_model": {
+      "claude-opus-5": 512,
+      "claude-sonnet-5": 1024,
+      "claude-haiku-4-5": 4096
+    },
+    "prefix_clears_every_model": true
+  },
+  "cost_projection_usd": {
+    "assumptions": {
+      "output_tokens_per_call": 1200,
+      "batch_discount": 0.5,
+      "cache_read_multiplier": 0.1,
+      "note": "list prices; Sonnet 5 has a lower introductory rate through 2026-08-31"
+    },
+    "per_model": {
+      "claude-opus-5": {
+        "usd_per_scenario_batched": 0.017276,
+        "usd_for_test_split": 2.1768,
+        "prefix_caches": true,
+        "min_cacheable_prefix": 512
+      },
+      "claude-sonnet-5": {
+        "usd_per_scenario_batched": 0.010366,
+        "usd_for_test_split": 1.3061,
+        "prefix_caches": true,
+        "min_cacheable_prefix": 1024
+      },
+      "claude-haiku-4-5": {
+        "usd_per_scenario_batched": 0.003455,
+        "usd_for_test_split": 0.4354,
+        "prefix_caches": true,
+        "min_cacheable_prefix": 4096
+      }
+    },
+    "frontier_sweep_total": 3.92,
+    "effort_sweep_total": 3.92,
+    "grand_total": 7.84,
+    "pilot_30_cases": 0.93
+  },
+  "model_capabilities_measured": {
+    "claude-opus-5": {
+      "effort_supported": true,
+      "thinking": "adaptive"
+    },
+    "claude-sonnet-5": {
+      "effort_supported": true,
+      "thinking": "adaptive"
+    },
+    "claude-haiku-4-5": {
+      "effort_supported": false,
+      "thinking": "enabled+budget_tokens"
+    }
+  },
+  "sample_rendered_prompt": "# Incident evidence\n\n## HTTP deliveries observed at ingest\n1. HTTP 200 after 273 ms response={\"status\":\"duplicate\"}\n   request: Stripe-Signature: t=1786212982,v1=0055d16c09e2cc0e74da0fc0532d8af415bd0886c3f0bddf013dd78b37b17c00\n   request body: 1018 bytes, valid JSON: yes\n2. HTTP 200 after 136 ms response={\"status\":\"queued\"}\n   request: Stripe-Signature: t=1786212982,v1=0055d16c09e2cc0e74da0fc0532d8af415bd0886c3f0bddf013dd78b37b17c00\n   request body: 1018 bytes, valid JSON: yes\n3. HTTP 200 after 319 ms response={\"status\":\"duplicate\"}\n   request: Stripe-Signature: t=1786212982,v1=0055d16c09e2cc0e74da0fc0532d8af415bd0886c3f0bddf013dd78b37b17c00\n   request body: 1018 bytes, valid JSON: yes\n4. HTTP 200 after 169 ms response={\"status\":\"duplicate\"}\n   request: Stripe-Signature: t=1786212982,v1=0055d16c09e2cc0e74da0fc0532d8af415bd0886c3f0bddf013dd78b37b17c00\n   request body: 1018 bytes, valid JSON: yes\n5. HTTP 200 after 58 ms response={\"status\":\"queued\"}\n   request: Stripe-Signature: t=1786212982,v1=0055d16c09e2cc0e74da0fc0532d8af415bd0886c3f0bddf013dd78b37b17c00\n   request body: 1018 bytes, valid JSON: yes\n6. HTTP 200 after 229 ms response={\"status\":\"duplicate\"}\n   request: Stripe-Signature: t=1786212982,v1=0055d16c09e2cc0e74da0fc0532d8af415bd0886c3f0bddf013dd78b37b17c00\n   request body: 1018 bytes, valid JSON: yes\n7. HTTP 200 after 317 ms response={\"status\":\"duplicate\"}\n   request: Stripe-Signature: t=1786212982,v1=0055d16c09e2cc0e74da0fc0532d8af415bd0886c3f0bddf013dd78b37b17c00\n   request body: 1018 bytes, valid JSON: yes\n8. HTTP 200 after 322 ms response={\"status\":\"duplicate\"}\n   request: Stripe-Signature: t=1786212982,v1=0055d16c09e2cc0e74da0fc0532d8af415bd0886c3f0bddf013dd78b37b17c00\n   request body: 1018 bytes, valid JSON: yes\n\n## Event log rows recorded by ingest\n- id=evt_h000075 type=charge.dispute.created object=dp_h000075 status=processed\n\n## Ledger balance change over the incident (minor units)\n- dispute_losses: +48096\n- processing_fees: +1500\n- stripe_balance: -49596\n\n## Money conservation: holds\n\nDiagnose this incident.",
+  "sample_hidden_label": "CONCURRENT_DUPLICATE"
+}
