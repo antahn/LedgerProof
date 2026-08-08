@@ -396,18 +396,22 @@ chaos harness hunts in the ledger.
   single account-specific outcome.
 - **`DELAY`-style time compression does not apply here** — these are real
   advances against real Stripe state; the 124.2 simulated days are genuine.
-- **Hosted CI: green, with the lifecycle step skipped.**
-  [Run 31269371028](https://github.com/antahn/LedgerProof/actions/runs/31269371028)
-  passed on Ubuntu — migrations, ruff, the secret scan, and all 430 unit,
-  integration, and **chaos** tests. Worth noting: the harness was developed on
-  Windows against Windows-specific process control (`taskkill`, `--pool=solo`,
-  `Popen.kill()`) and ran green on Linux unchanged.
-  The **test-clock suites were skipped**, not run: the sandbox secret was not
-  yet configured on the repository. That step is deliberately conditional and
-  emits a CI warning when the secret is absent, so a secretless run cannot be
-  mistaken for a passing one — but until it runs hosted, the 124.2-simulated-day
-  measurement above stands on the **local** run recorded in
-  `artifacts/phase3_clocks_run.txt`, not on CI.
+- **Hosted CI: green, lifecycle suites included.**
+  [Run 31270280289](https://github.com/antahn/LedgerProof/actions/runs/31270280289)
+  passed every step on Ubuntu — migrations, ruff, the secret scan, all 461
+  unit/integration/**chaos** tests, and the **test-clock lifecycle suites**
+  against the live sandbox. (The first run,
+  [31269371028](https://github.com/antahn/LedgerProof/actions/runs/31269371028),
+  correctly *skipped* the lifecycle step because the sandbox secret was not yet
+  configured.) Worth noting: the chaos harness was developed on Windows against
+  Windows-specific process control (`taskkill`, `--pool=solo`, `Popen.kill()`)
+  and ran green on Linux unchanged.
+- **The hosted run's clock metrics were not read back into this file.** GitHub
+  returns 403 for unauthenticated log and artifact downloads, so what is
+  verified here is the step's *conclusion* (success), not its numbers. The
+  124.2-simulated-day / 180.0 s figures above remain the **local** measurement
+  from `artifacts/phase3_clocks_run.txt`; the hosted equivalents are in that
+  run's uploaded `ledgerproof-artifacts` bundle.
 
 ### Backpressure and observability (Phase 4)
 
