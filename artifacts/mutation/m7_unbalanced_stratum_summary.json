@@ -14,9 +14,9 @@
     "--port",
     "8100"
   ],
-  "started_at": "2026-08-08T18:38:17.537099+00:00",
-  "finished_at": "2026-08-08T18:38:36.661652+00:00",
-  "wall_clock_s": 19.12,
+  "started_at": "2026-08-08T19:15:52.388101+00:00",
+  "finished_at": "2026-08-08T19:16:12.768921+00:00",
+  "wall_clock_s": 20.38,
   "artifact": "C:\\Users\\Anthony\\LedgerProof\\artifacts\\mutation\\m7_unbalanced_stratum.jsonl",
   "scenarios_generated": 8,
   "scenarios_run": 8,

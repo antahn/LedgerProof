@@ -391,11 +391,29 @@ reasoning:
 
 Roughly a third of all errors fall in these four classes. Reporting a frontier
 built on them would be publishing the harness's blind spots as a fact about
-Claude, so the full sweep is **not** run until the evidence is fixed:
-record delivery start timestamps (exposes concurrency), record the upstream
-status the proxy returned (exposes `RESPOND_500`), record the worker restart
-(exposes `PARTIAL_WRITE`), and either widen the in-tolerance `DELAY` or fold it
-into the stale variant.
+Claude, so the full sweep was **not** run until the evidence was fixed.
+
+**Fixed, and verified before spending again.** Each delivery now records when
+it hit the wire relative to the event being generated, and what status the
+*sender* was answered; the record carries whether the worker process restarted;
+and the benign `DELAY` widened from 250 ms — indistinguishable from jitter — to
+4 s. Measured on the regenerated set, the classes now separate:
+
+| Class | Distinguishing evidence, measured |
+|---|---|
+| `DELAY` | arrived **+4141 ms** against `NONE`'s +93 ms |
+| `CONCURRENT_DUPLICATE` | 8 deliveries, all at +156 ms — **spread 0 ms** |
+| `DUPLICATE` | 2 deliveries, **spread 189 ms** — staggered, not overlapping |
+| `RESPOND_500` | `upstream=[500, 200]`: the forced error is finally visible |
+| `PARTIAL_WRITE` | `worker_restarted: true` |
+| `SLOW_LORIS` | handled for 2218 ms while arriving promptly (+94 ms) |
+
+One reclassification worth recording: `worker_restarted` had been on the
+forbidden list, withheld as leakage. That was wrong. A process restart is a
+line in any supervisor's log and the first thing an on-call engineer checks —
+it is evidence, not the answer key. Withholding it made `PARTIAL_WRITE`
+undiagnosable by construction rather than merely hard. Evidence that strongly
+implies a fault is not leakage; only the label is.
 
 ## Found while preparing to publish — 2026-08-07
 

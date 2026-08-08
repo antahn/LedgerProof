@@ -14,9 +14,9 @@
     "--port",
     "8100"
   ],
-  "started_at": "2026-08-08T18:37:31.257589+00:00",
-  "finished_at": "2026-08-08T18:38:15.483165+00:00",
-  "wall_clock_s": 44.22,
+  "started_at": "2026-08-08T19:14:48.785172+00:00",
+  "finished_at": "2026-08-08T19:15:48.567716+00:00",
+  "wall_clock_s": 59.78,
   "artifact": "C:\\Users\\Anthony\\LedgerProof\\artifacts\\mutation\\m5_double_post_stratum.jsonl",
   "scenarios_generated": 36,
   "scenarios_run": 36,

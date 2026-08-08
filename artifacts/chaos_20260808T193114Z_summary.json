@@ -1,0 +1,75 @@
+{
+  "argv": [
+    "C:\\Users\\Anthony\\LedgerProof\\harness\\runner.py",
+    "--seed",
+    "5",
+    "--per-combo",
+    "5",
+    "--port",
+    "8100"
+  ],
+  "started_at": "2026-08-08T19:31:14.595991+00:00",
+  "finished_at": "2026-08-08T19:39:25.674107+00:00",
+  "wall_clock_s": 491.06,
+  "artifact": "C:\\Users\\Anthony\\LedgerProof\\artifacts\\chaos_20260808T193114Z.jsonl",
+  "scenarios_generated": 315,
+  "scenarios_run": 315,
+  "scenarios_with_breaks": 0,
+  "scenarios_errored": 0,
+  "counts_by_fault": {
+    "CONCURRENT_DUPLICATE": 20,
+    "DELAY": 25,
+    "DOWNGRADE_SCHEME": 25,
+    "DROP": 20,
+    "DUPLICATE": 20,
+    "DUPLICATE_OBJECT": 20,
+    "NONE": 25,
+    "PARTIAL_WRITE": 20,
+    "REORDER": 20,
+    "RESPOND_500": 20,
+    "SLOW_LORIS": 25,
+    "STALE_TIMESTAMP": 25,
+    "TAMPER_BODY": 25,
+    "TRUNCATE_BODY": 25
+  },
+  "breaks_by_kind": {},
+  "kill_scenarios": 20,
+  "kills_with_task_in_flight": 5,
+  "skipped_combos": [
+    {
+      "fault": "DUPLICATE",
+      "kind": "invoice_payment_failed",
+      "reason": "dedupe is measured as exactly one transaction; a non-money event posts none"
+    },
+    {
+      "fault": "DUPLICATE_OBJECT",
+      "kind": "invoice_payment_failed",
+      "reason": "the second dedupe key is measured as exactly one transaction; a non-money event posts none"
+    },
+    {
+      "fault": "CONCURRENT_DUPLICATE",
+      "kind": "invoice_payment_failed",
+      "reason": "the race is over a ledger write that a non-money event never makes"
+    },
+    {
+      "fault": "REORDER",
+      "kind": "invoice_payment_failed",
+      "reason": "order independence is measured by money posting regardless of arrival order"
+    },
+    {
+      "fault": "DROP",
+      "kind": "invoice_payment_failed",
+      "reason": "a dropped non-money event is CORRECTLY invisible to the reconciler (no transaction was ever due), so the fault's expectation that a break is reported would be false"
+    },
+    {
+      "fault": "RESPOND_500",
+      "kind": "invoice_payment_failed",
+      "reason": "retry safety is measured as exactly one transaction"
+    },
+    {
+      "fault": "PARTIAL_WRITE",
+      "kind": "invoice_payment_failed",
+      "reason": "there is no ledger transaction to kill mid-write"
+    }
+  ]
+}

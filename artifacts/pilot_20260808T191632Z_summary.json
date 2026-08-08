@@ -1,0 +1,229 @@
+{
+  "generated_at": "2026-08-08T19:29:01.762951+00:00",
+  "cases_per_model": 16,
+  "cap_usd": 5.0,
+  "spent_usd": 1.0949,
+  "calls": 48,
+  "per_model": {
+    "claude-opus-5": {
+      "n": 16,
+      "answered": 16,
+      "refused": 0,
+      "accuracy@1": 0.8125,
+      "accuracy@3": 1.0,
+      "over_repair_rate": 0.0,
+      "repair_proposed": 0,
+      "repair_balanced": 0,
+      "repair_stratum_n": 4,
+      "false_repair_rate": 0.0,
+      "repair_restores_expected_balances": 0.0,
+      "repair_fixable_n": 2,
+      "unfixable_n": 2,
+      "claimed_to_fix_the_unfixable_rate": 0.0,
+      "mean_confidence": 0.8219,
+      "latency_p50_s": 9.698,
+      "latency_p95_s": 49.217,
+      "cost_usd_total": 0.4954,
+      "cost_usd_per_scenario": 0.030962,
+      "accuracy_by_fault": {
+        "CONCURRENT_DUPLICATE": 1.0,
+        "DELAY": 1.0,
+        "DOWNGRADE_SCHEME": 1.0,
+        "DROP": 1.0,
+        "DUPLICATE": 1.0,
+        "DUPLICATE_OBJECT": 1.0,
+        "NONE": 0.3333,
+        "PARTIAL_WRITE": 1.0,
+        "REORDER": 1.0,
+        "RESPOND_500": 1.0,
+        "SLOW_LORIS": 1.0,
+        "STALE_TIMESTAMP": 0.0
+      },
+      "confusion": {
+        "CONCURRENT_DUPLICATE": {
+          "CONCURRENT_DUPLICATE": 2
+        },
+        "DELAY": {
+          "DELAY": 1
+        },
+        "DOWNGRADE_SCHEME": {
+          "DOWNGRADE_SCHEME": 1
+        },
+        "DROP": {
+          "DROP": 1
+        },
+        "DUPLICATE": {
+          "DUPLICATE": 1
+        },
+        "DUPLICATE_OBJECT": {
+          "DUPLICATE_OBJECT": 1
+        },
+        "NONE": {
+          "NONE": 1,
+          "PARTIAL_WRITE": 2
+        },
+        "PARTIAL_WRITE": {
+          "PARTIAL_WRITE": 1
+        },
+        "REORDER": {
+          "REORDER": 1
+        },
+        "RESPOND_500": {
+          "RESPOND_500": 2
+        },
+        "SLOW_LORIS": {
+          "SLOW_LORIS": 1
+        },
+        "STALE_TIMESTAMP": {
+          "TAMPER_BODY": 1
+        }
+      }
+    },
+    "claude-sonnet-5": {
+      "n": 16,
+      "answered": 14,
+      "refused": 0,
+      "accuracy@1": 0.75,
+      "accuracy@3": 0.875,
+      "over_repair_rate": 0.0,
+      "repair_proposed": 0,
+      "repair_balanced": 0,
+      "repair_stratum_n": 2,
+      "false_repair_rate": 0.0,
+      "repair_restores_expected_balances": 0.0,
+      "repair_fixable_n": 2,
+      "mean_confidence": 0.7679,
+      "latency_p50_s": 9.689,
+      "latency_p95_s": 89.409,
+      "cost_usd_total": 0.4797,
+      "cost_usd_per_scenario": 0.029979,
+      "accuracy_by_fault": {
+        "CONCURRENT_DUPLICATE": 1.0,
+        "DELAY": 1.0,
+        "DOWNGRADE_SCHEME": 1.0,
+        "DROP": 1.0,
+        "DUPLICATE": 1.0,
+        "DUPLICATE_OBJECT": 1.0,
+        "NONE": 0.3333,
+        "PARTIAL_WRITE": 1.0,
+        "REORDER": 0.0,
+        "RESPOND_500": 1.0,
+        "SLOW_LORIS": 1.0,
+        "STALE_TIMESTAMP": 0.0
+      },
+      "confusion": {
+        "CONCURRENT_DUPLICATE": {
+          "CONCURRENT_DUPLICATE": 2
+        },
+        "DELAY": {
+          "DELAY": 1
+        },
+        "DOWNGRADE_SCHEME": {
+          "DOWNGRADE_SCHEME": 1
+        },
+        "DROP": {
+          "DROP": 1
+        },
+        "DUPLICATE": {
+          "DUPLICATE": 1
+        },
+        "DUPLICATE_OBJECT": {
+          "DUPLICATE_OBJECT": 1
+        },
+        "NONE": {
+          "NONE": 1
+        },
+        "PARTIAL_WRITE": {
+          "PARTIAL_WRITE": 1
+        },
+        "REORDER": {
+          "NONE": 1
+        },
+        "RESPOND_500": {
+          "RESPOND_500": 2
+        },
+        "SLOW_LORIS": {
+          "SLOW_LORIS": 1
+        },
+        "STALE_TIMESTAMP": {
+          "TAMPER_BODY": 1
+        }
+      }
+    },
+    "claude-haiku-4-5": {
+      "n": 16,
+      "answered": 16,
+      "refused": 0,
+      "accuracy@1": 0.75,
+      "accuracy@3": 0.8125,
+      "over_repair_rate": 0.0,
+      "repair_proposed": 2,
+      "repair_balanced": 2,
+      "repair_stratum_n": 4,
+      "false_repair_rate": 0.5,
+      "repair_restores_expected_balances": 0.0,
+      "repair_fixable_n": 2,
+      "unfixable_n": 2,
+      "claimed_to_fix_the_unfixable_rate": 1.0,
+      "mean_confidence": 0.8688,
+      "latency_p50_s": 10.955,
+      "latency_p95_s": 26.471,
+      "cost_usd_total": 0.1198,
+      "cost_usd_per_scenario": 0.007487,
+      "accuracy_by_fault": {
+        "CONCURRENT_DUPLICATE": 1.0,
+        "DELAY": 1.0,
+        "DOWNGRADE_SCHEME": 1.0,
+        "DROP": 1.0,
+        "DUPLICATE": 1.0,
+        "DUPLICATE_OBJECT": 1.0,
+        "NONE": 0.6667,
+        "PARTIAL_WRITE": 1.0,
+        "REORDER": 0.0,
+        "RESPOND_500": 1.0,
+        "SLOW_LORIS": 0.0,
+        "STALE_TIMESTAMP": 0.0
+      },
+      "confusion": {
+        "CONCURRENT_DUPLICATE": {
+          "CONCURRENT_DUPLICATE": 2
+        },
+        "DELAY": {
+          "DELAY": 1
+        },
+        "DOWNGRADE_SCHEME": {
+          "DOWNGRADE_SCHEME": 1
+        },
+        "DROP": {
+          "DROP": 1
+        },
+        "DUPLICATE": {
+          "DUPLICATE": 1
+        },
+        "DUPLICATE_OBJECT": {
+          "DUPLICATE_OBJECT": 1
+        },
+        "NONE": {
+          "NONE": 2,
+          "TAMPER_BODY": 1
+        },
+        "PARTIAL_WRITE": {
+          "PARTIAL_WRITE": 1
+        },
+        "REORDER": {
+          "DUPLICATE_OBJECT": 1
+        },
+        "RESPOND_500": {
+          "RESPOND_500": 2
+        },
+        "SLOW_LORIS": {
+          "NONE": 1
+        },
+        "STALE_TIMESTAMP": {
+          "TAMPER_BODY": 1
+        }
+      }
+    }
+  },
+  "artifact": "pilot_20260808T191632Z.jsonl"
+}

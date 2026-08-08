@@ -190,9 +190,9 @@ JSON. A well-formed header looks like `t=<unix seconds>,v1=<64 hex chars>`.
 
 | Evidence | Fault |
 |---|---|
-| Header carries a `v1=` signature, `t` is recent, body parses as JSON | `TAMPER_BODY` — bytes were altered after signing, so the digest no longer matches, but the payload is still structurally intact |
+| Signature age is small (well under 300 s), body parses as JSON, header has a `v1=` | `TAMPER_BODY` — bytes were altered after signing, so the digest no longer matches, but the payload is still structurally intact and the timestamp is fine |
 | Body does NOT parse as JSON, and is markedly smaller than a comparable payload | `TRUNCATE_BODY` — the body was cut, which breaks both the digest and the JSON |
-| Header's `t` is far in the past (hundreds of seconds or more before the others) | `STALE_TIMESTAMP` — the payload is intact and the digest is correct for that `t`, but the timestamp fails the 300-second tolerance |
+| **Signature age exceeds the 300-second tolerance** | `STALE_TIMESTAMP` — the payload is intact and the digest is correct for that `t`, but it arrived too late to be accepted |
 | Header has NO `v1=` item at all — only `v0=` | `DOWNGRADE_SCHEME` — a `v0` signature is a fake test-only scheme, and accepting it would be a downgrade attack, so it is ignored and the header counts as unsigned |
 
 Read the header before guessing. The distinguishing evidence is usually one
@@ -397,6 +397,7 @@ def build_case(record: dict[str, Any]) -> dict[str, Any]:
             "body_parses_as_json": d.get("request_body_parses_as_json"),
             "arrived_after_ms": d.get("arrived_after_ms"),
             "upstream_status": d.get("upstream_status"),
+            "signature_age_s": d.get("signature_age_at_arrival_s"),
         }
         for d in record.get("deliveries", [])
     ]
@@ -437,6 +438,12 @@ def render_case(case: dict[str, Any]) -> str:
                 lines.append(
                     f"   request: Stripe-Signature: {d['signature_header']}"
                 )
+                age = d.get("signature_age_s")
+                if age is not None:
+                    lines.append(
+                        f"   signature was {age} seconds old on arrival "
+                        f"(tolerance is 300 s)"
+                    )
                 lines.append(
                     f"   request body: {d.get('body_bytes')} bytes, "
                     f"valid JSON: {'yes' if parses else 'no'}"

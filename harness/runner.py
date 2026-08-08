@@ -236,6 +236,7 @@ def _delivery_records(
     results: Sequence[DeliveryResult],
     *,
     scenario_started: float,
+    scenario_started_wall: float,
 ) -> list[dict[str, object]]:
     """What was sent and what came back, per delivery.
 
@@ -284,8 +285,29 @@ def _delivery_records(
             record["request_signature_header"] = sent.sig_header
             record["request_body_bytes"] = len(body)
             record["request_body_parses_as_json"] = _parses_as_json(body)
+            # How old the signature was when it landed. Without this the
+            # header's `t=` is an unanchored number: nothing else in the
+            # evidence says what "now" was, so a back-dated signature is
+            # indistinguishable from a tampered one. This is precisely the
+            # quantity ingest's 300-second tolerance check computes.
+            arrived_wall = scenario_started_wall + (result.started_at - scenario_started)
+            signed_at = _signature_timestamp(sent.sig_header)
+            if signed_at is not None:
+                record["signature_age_at_arrival_s"] = round(arrived_wall - signed_at, 1)
         records.append(record)
     return records
+
+
+def _signature_timestamp(sig_header: str) -> float | None:
+    """The `t=` value from a Stripe-Signature header, if it carries one."""
+    for item in sig_header.split(","):
+        key, sep, value = item.partition("=")
+        if sep and key.strip() == "t":
+            try:
+                return float(value)
+            except ValueError:
+                return None
+    return None
 
 
 def _parses_as_json(body: bytes) -> bool:
@@ -361,6 +383,9 @@ def run_scenario(
     t0 = time.perf_counter()
     # Same clock the proxy stamps deliveries with, so offsets are comparable.
     scenario_started = time.monotonic()
+    # Captured at the same instant, so a monotonic delivery offset converts
+    # exactly to wall clock — which is what a signature timestamp compares to.
+    scenario_started_wall = time.time()
 
     fault_plan = plan(
         scenario.fault, scenario.fixtures, stack.webhook_secret, params=scenario.params
@@ -501,7 +526,10 @@ def run_scenario(
         "ledger_diff": ledger_diff,
         "duration_ms": int((time.perf_counter() - t0) * 1000),
         "deliveries": _delivery_records(
-            fault_plan, results, scenario_started=scenario_started
+            fault_plan,
+            results,
+            scenario_started=scenario_started,
+            scenario_started_wall=scenario_started_wall,
         ),
         # What ingest durably recorded, as an on-call engineer would query it.
         "event_log": event_log,
