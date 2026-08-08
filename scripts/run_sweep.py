@@ -34,14 +34,23 @@ POLL_SECONDS = 20
 MAX_WAIT_S = 3 * 3600
 
 
-def build_request(case: bench.Case, model: str, effort: str | None) -> Request:
+def build_request(case: bench.Case, model: str, effort: str | None, index: int) -> Request:
+    """One batched request.
+
+    `custom_id` must match ^[a-zA-Z0-9_-]{1,64}$, so it is a plain index rather
+    than an encoded tag — scenario ids contain characters the API rejects, and
+    truncating them to fit could collide, which would silently mis-attribute
+    answers. Model and effort are constant within a batch, so the index alone
+    identifies the case via the lookup built alongside it.
+    """
     params = request_params(model, case.as_prompt_case(), effort=effort)
     params["output_config"] = {
         **params.get("output_config", {}),
         **batchlib.output_config(Verdict),
     }
-    tag = f"{model}|{effort or 'default'}|{case.case_id}"
-    return Request(custom_id=tag[:64], params=MessageCreateParamsNonStreaming(**params))
+    return Request(
+        custom_id=f"case-{index:05d}", params=MessageCreateParamsNonStreaming(**params)
+    )
 
 
 def submit_and_wait(client: anthropic.Anthropic, requests: list[Request], label: str):
@@ -61,16 +70,17 @@ def submit_and_wait(client: anthropic.Anthropic, requests: list[Request], label:
 
 
 def collect(client, batch_id: str, by_tag: dict[str, bench.Case], guard: bench.BudgetGuard,
-            fh) -> dict[tuple[str, str], list[bench.Scored]]:
+            fh, *, model: str, effort: str) -> dict[tuple[str, str], list[bench.Scored]]:
     grouped: dict[tuple[str, str], list[bench.Scored]] = {}
+    errors = 0
     for result in client.messages.batches.results(batch_id):
-        # Keyed by custom_id: batch results arrive in arbitrary order.
-        tag = result.custom_id
-        case = by_tag.get(tag)
+        # Keyed by custom_id: batch results arrive in ARBITRARY order, so
+        # anything positional would mis-attribute every answer.
+        case = by_tag.get(result.custom_id)
         if case is None:
             continue
-        model, effort, _ = tag.split("|", 2)
         if result.result.type != "succeeded":
+            errors += 1
             continue
         message = result.result.message
         usage = {
@@ -104,6 +114,8 @@ def collect(client, batch_id: str, by_tag: dict[str, bench.Case], guard: bench.B
             "refused": refused, "parse_error": parse_error, "usage": usage,
         }) + "\n")
         fh.flush()
+    if errors:
+        print(f"    ({errors} requests did not succeed and are excluded)")
     return grouped
 
 
@@ -134,13 +146,16 @@ def main() -> None:
         for model, effort in runs:
             label = f"{model}@{effort or 'default'}"
             requests, by_tag = [], {}
-            for case in cases:
-                req = build_request(case, model, effort)
+            for index, case in enumerate(cases):
+                req = build_request(case, model, effort, index)
                 requests.append(req)
                 by_tag[req["custom_id"]] = case
             guard.check(projected_usd=0.02 * len(requests))
             batch_id = submit_and_wait(client, requests, label)
-            grouped = collect(client, batch_id, by_tag, guard, fh)
+            grouped = collect(
+                client, batch_id, by_tag, guard, fh,
+                model=model, effort=effort or "default",
+            )
             for key, scored in grouped.items():
                 results.setdefault(key, []).extend(scored)
             agg = bench.aggregate(results.get((model, effort or "default"), []))
