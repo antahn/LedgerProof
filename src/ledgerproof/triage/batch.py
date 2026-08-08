@@ -21,6 +21,16 @@ from typing import Any
 
 from pydantic import BaseModel, ValidationError
 
+# Constraint keywords structured outputs rejects outright — a schema carrying
+# one returns 400 and takes the whole batch with it. Pydantic emits them from
+# ordinary field constraints (`Field(gt=0)` becomes `exclusiveMinimum`), so
+# they are stripped here exactly as `messages.parse()` does, and still enforced
+# client-side when the response is validated back into the model.
+UNSUPPORTED_KEYWORDS = frozenset({
+    "minimum", "maximum", "exclusiveMinimum", "exclusiveMaximum", "multipleOf",
+    "minLength", "maxLength", "minItems", "maxItems", "uniqueItems",
+})
+
 
 def strict_schema(model: type[BaseModel]) -> dict[str, Any]:
     """A JSON schema the structured-outputs API will accept."""
@@ -33,7 +43,11 @@ def _strictify(node: Any) -> Any:
     if not isinstance(node, dict):
         return node
 
-    out = {key: _strictify(value) for key, value in node.items()}
+    out = {
+        key: _strictify(value)
+        for key, value in node.items()
+        if key not in UNSUPPORTED_KEYWORDS
+    }
     if out.get("type") == "object" or "properties" in out:
         out["additionalProperties"] = False
         properties = out.get("properties") or {}
